@@ -1,0 +1,325 @@
+================================================================================
+                    BLUECUBE CODER FRAMEWORK LICENSE AGREEMENT
+                                  Version 2.0
+================================================================================
+
+This License Agreement ("License") governs your use of the BlueCube Coder 
+Framework ("Framework") included in this repository's .claude/ directory. 
+By using the Framework, you agree to be bound by the terms of this License.
+
+This License is issued pursuant to the Master Services Agreement ("MSA") 
+between BlueCube AI BV and the organisation that has subscribed to BlueCube 
+Lab services ("Licensee").
+
+--------------------------------------------------------------------------------
+1. DEFINITIONS
+--------------------------------------------------------------------------------
+
+"Framework" means the BlueCube Coder Framework, including all files, commands, 
+agents, hooks, configurations, and related materials contained in the .claude/ 
+directory.
+
+"Licensed Repository" means a code repository in which this Framework has been 
+deployed under a valid subscription and for which applicable Repository Fees 
+have been paid.
+
+"Authorised Users" means employees and contractors of Licensee who have access 
+to the Licensed Repository and a valid Claude Code license.
+
+"Derivative Works" means modifications, adaptations, or extensions of the 
+Framework created by Licensee.
+
+"Expertise Files" means the expertise.yaml files and related outputs generated 
+from codebase analysis specific to Licensee's code.
+
+"Learning Levels" means the five progressive levels of AI-assisted development 
+maturity: (1) Tool Familiarity, (2) Planned Collaboration, (3) Context-Driven 
+Execution, (4) Autonomous Delegation, and (5) Trusted Autonomy.
+
+"Subscription Term" means the period during which Licensee maintains an active 
+BlueCube Lab subscription.
+
+--------------------------------------------------------------------------------
+2. GRANT OF LICENSE
+--------------------------------------------------------------------------------
+
+2.1 PERMITTED USES DURING SUBSCRIPTION
+
+Subject to the terms of this License and the MSA, BlueCube AI BV grants 
+Licensee a non-exclusive, non-transferable, limited license to:
+
+  (a) Use the Framework within Licensed Repositories for internal software 
+      development purposes;
+  
+  (b) Modify the Framework files to customise commands, configurations, and 
+      workflows for Licensee's specific development needs;
+  
+  (c) Create Derivative Works based on the Framework for use within Licensed 
+      Repositories;
+  
+  (d) Receive updates to the Framework during the Subscription Term;
+  
+  (e) Permit Authorised Users to access and use the Framework in accordance 
+      with this License.
+
+2.2 RIGHTS UPON SUBSCRIPTION EXPIRY OR NON-RENEWAL
+
+If Licensee's subscription expires or is not renewed:
+
+  (a) Licensee may continue to use the current version of the Framework in 
+      Licensed Repositories for internal purposes only;
+  
+  (b) Licensee shall not receive any further updates to the Framework;
+  
+  (c) All restrictions in Section 3 continue to apply;
+  
+  (d) Licensee's access to the Learning Portal shall cease.
+
+2.3 OWNERSHIP OF MODIFICATIONS
+
+Licensee retains ownership of any Derivative Works created by Licensee. 
+However, the underlying Framework components and BlueCube intellectual 
+property incorporated therein remain the property of BlueCube AI BV.
+
+2.4 EXPERTISE FILES
+
+Expertise Files generated specifically for Licensee's codebase are owned by 
+Licensee. Licensee may use, modify, and retain such files without restriction,
+including after subscription expiry.
+
+--------------------------------------------------------------------------------
+3. RESTRICTIONS
+--------------------------------------------------------------------------------
+
+3.1 PROHIBITED ACTIONS
+
+Licensee shall NOT:
+
+  (a) Sell, license, sublicense, or otherwise commercially distribute the 
+      Framework or any Derivative Works to third parties;
+  
+  (b) Distribute, share, or make available the Framework to any organisation, 
+      entity, or individual outside of Licensee's organisation;
+  
+  (c) Use the Framework to provide services to third parties, whether for 
+      compensation or otherwise;
+  
+  (d) Remove, alter, or obscure any copyright, trademark, or other proprietary 
+      notices contained in the Framework;
+  
+  (e) Reverse engineer, decompile, or disassemble the Framework except to the 
+      extent permitted by applicable law;
+  
+  (f) Use the Framework in any manner that infringes the intellectual property 
+      rights of BlueCube AI BV or any third party;
+  
+  (g) Transfer or assign this License to any third party without BlueCube AI 
+      BV's prior written consent.
+
+3.2 DERIVATIVE WORKS RESTRICTIONS
+
+While Licensee may create and use Derivative Works internally, Licensee may NOT:
+
+  (a) Sell Derivative Works to any third party;
+  
+  (b) Distribute Derivative Works to companies, organisations, or individuals 
+      outside Licensee's organisation;
+  
+  (c) Offer Derivative Works as a service or product to third parties;
+  
+  (d) Open-source or publicly release Derivative Works that contain Framework 
+      components.
+
+3.3 SURVIVAL OF RESTRICTIONS
+
+The restrictions in this Section 3 apply during the Subscription Term and 
+continue to apply after subscription expiry or non-renewal for as long as 
+Licensee retains any copy of the Framework.
+
+--------------------------------------------------------------------------------
+4. INTELLECTUAL PROPERTY
+--------------------------------------------------------------------------------
+
+4.1 BLUECUBE OWNERSHIP
+
+The Framework, including all intellectual property rights therein, is and shall 
+remain the exclusive property of BlueCube AI BV. This License does not transfer 
+any ownership rights to Licensee.
+
+4.2 RETAINED RIGHTS
+
+BlueCube AI BV reserves all rights not expressly granted in this License. 
+No implied licenses are granted.
+
+4.3 FEEDBACK
+
+If Licensee provides suggestions, feedback, or improvements regarding the 
+Framework, BlueCube AI BV may use such feedback without restriction or 
+obligation to Licensee.
+
+--------------------------------------------------------------------------------
+5. REPOSITORY LICENSING
+--------------------------------------------------------------------------------
+
+5.1 PER-REPOSITORY LICENSE
+
+This License applies to the specific repository in which the Framework has 
+been deployed. Deployment of the Framework to additional repositories requires 
+payment of applicable Repository Fees as specified in the MSA.
+
+5.2 REPOSITORY SIZE
+
+Repository Fees are determined by repository size measured in Lines of Code. 
+Licensee acknowledges that BlueCube may verify repository size at deployment 
+and periodically thereafter.
+
+--------------------------------------------------------------------------------
+6. SUPPORT AND UPDATES
+--------------------------------------------------------------------------------
+
+6.1 UPDATES DURING SUBSCRIPTION
+
+During the Subscription Term, BlueCube AI BV shall provide updates to the 
+Framework according to the subscription tier. Updates are subject to this 
+License unless accompanied by different terms.
+
+6.2 NO UPDATES AFTER EXPIRY
+
+Following subscription expiry or non-renewal, Licensee shall not receive any 
+further updates to the Framework. Licensee may continue to use the last 
+version received during the Subscription Term, subject to the restrictions 
+herein.
+
+6.3 SUPPORT
+
+Technical support is available according to the subscription tier and is 
+subject to applicable Support Fees for escalated requests as specified in 
+the MSA.
+
+--------------------------------------------------------------------------------
+7. TERM AND TERMINATION
+--------------------------------------------------------------------------------
+
+7.1 TERM
+
+This License is effective for the duration of the Subscription Term. Upon 
+renewal of the subscription, this License automatically renews.
+
+7.2 EFFECT OF SUBSCRIPTION EXPIRY
+
+Upon subscription expiry or non-renewal (without cause):
+
+  (a) Licensee may continue to use the current Framework version for internal 
+      purposes;
+  (b) Licensee shall not receive updates;
+  (c) Licensee may retain Expertise Files without restriction;
+  (d) All restrictions on commercialisation and distribution remain in effect.
+
+7.3 TERMINATION FOR CAUSE
+
+This License terminates immediately upon:
+
+  (a) Termination of the MSA for cause by BlueCube AI BV;
+  (b) Material breach of this License by Licensee;
+  (c) Licensee's attempt to commercialise or distribute the Framework in 
+      violation of Section 3.
+
+7.4 EFFECT OF TERMINATION FOR CAUSE
+
+Upon termination for cause, Licensee must immediately:
+
+  (a) Cease all use of the Framework;
+  (b) Remove the Framework (the .claude/ directory) from all repositories;
+  (c) Licensee may retain Expertise Files that were generated during the 
+      Subscription Term.
+
+7.5 SURVIVAL
+
+Sections 3 (Restrictions), 4 (Intellectual Property), 8 (Disclaimer), and 
+9 (Limitation of Liability) survive termination or expiry of this License.
+
+--------------------------------------------------------------------------------
+8. DISCLAIMER OF WARRANTIES
+--------------------------------------------------------------------------------
+
+THE FRAMEWORK IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. BLUECUBE AI BV 
+DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO 
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND 
+NON-INFRINGEMENT.
+
+BLUECUBE AI BV DOES NOT WARRANT THAT THE FRAMEWORK WILL BE ERROR-FREE, SECURE, 
+OR UNINTERRUPTED, OR THAT DEFECTS WILL BE CORRECTED.
+
+--------------------------------------------------------------------------------
+9. LIMITATION OF LIABILITY
+--------------------------------------------------------------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL BLUECUBE 
+AI BV BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR 
+PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, OR 
+BUSINESS OPPORTUNITIES, ARISING OUT OF OR RELATED TO THIS LICENSE OR THE USE 
+OF THE FRAMEWORK.
+
+BLUECUBE AI BV'S TOTAL LIABILITY UNDER THIS LICENSE SHALL NOT EXCEED THE FEES 
+PAID BY LICENSEE FOR THE SUBSCRIPTION IN THE TWELVE (12) MONTHS PRECEDING THE 
+CLAIM.
+
+--------------------------------------------------------------------------------
+10. THIRD-PARTY COMPONENTS
+--------------------------------------------------------------------------------
+
+The Framework may include or interact with third-party components, including 
+Anthropic's Claude Code. Use of such components is subject to their respective 
+license terms. Licensee is responsible for compliance with third-party licenses 
+and for maintaining required third-party subscriptions (such as Claude Code 
+licenses).
+
+--------------------------------------------------------------------------------
+11. GENERAL PROVISIONS
+--------------------------------------------------------------------------------
+
+11.1 GOVERNING LAW
+
+This License is governed by the laws of the Netherlands, without regard to 
+conflict of laws principles.
+
+11.2 ENTIRE AGREEMENT
+
+This License, together with the MSA and applicable Order Forms, constitutes 
+the entire agreement regarding the Framework and supersedes all prior 
+agreements on this subject matter.
+
+11.3 SEVERABILITY
+
+If any provision of this License is held invalid or unenforceable, the 
+remaining provisions shall continue in full force and effect.
+
+11.4 NO WAIVER
+
+Failure to enforce any provision of this License shall not constitute a 
+waiver of that provision or any other provision.
+
+11.5 ASSIGNMENT
+
+Licensee may not assign this License without BlueCube AI BV's prior written 
+consent. BlueCube AI BV may assign this License in connection with a merger, 
+acquisition, or sale of assets.
+
+--------------------------------------------------------------------------------
+12. CONTACT INFORMATION
+--------------------------------------------------------------------------------
+
+For questions regarding this License, contact:
+
+BlueCube AI BV
+Email: legal@bluecube.ai
+Website: https://bluecube.ai
+
+================================================================================
+
+By using the Framework, Licensee acknowledges that it has read, understood, 
+and agrees to be bound by the terms of this License.
+
+© 2026 BlueCube AI BV. All rights reserved.
+
+================================================================================

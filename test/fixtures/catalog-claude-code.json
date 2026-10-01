@@ -1,0 +1,708 @@
+{
+  "agent": "claude-code",
+  "agents": [
+    {
+      "configDir": ".claude",
+      "displayName": "Claude Code",
+      "experimental": false,
+      "homedirPath": "~/.claude",
+      "memoryFile": "CLAUDE.md",
+      "name": "claude-code"
+    },
+    {
+      "configDir": ".pi",
+      "displayName": "Pi",
+      "experimental": false,
+      "homedirPath": "~/.pi/agent",
+      "memoryFile": "AGENTS.md",
+      "name": "pi"
+    },
+    {
+      "configDir": ".opencode",
+      "displayName": "OpenCode",
+      "experimental": false,
+      "homedirPath": "~/.opencode",
+      "memoryFile": "AGENTS.md",
+      "name": "opencode"
+    }
+  ],
+  "categories": [
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "CLAUDE.md and rules/ files that tell Claude how this project is organised and coded",
+      "experimental": false,
+      "group": "Foundation",
+      "icon": "brain",
+      "id": "memory_init",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Root project-memory file loaded by Claude Code on every session start",
+          "experimental": false,
+          "id": "claude_md",
+          "label": "CLAUDE.md"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Topic-scoped rules files (testing, code style, architecture) imported by CLAUDE.md",
+          "experimental": false,
+          "id": "rules_dir",
+          "label": "Rules directory"
+        }
+      ],
+      "kind": "shared",
+      "label": "Project Memory",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Understand the codebase before acting: quick prime plus delegated deep research",
+      "experimental": false,
+      "group": "Foundation",
+      "icon": "layers",
+      "id": "context",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Quick codebase overview: reads README and lists files so Claude knows the layout",
+          "experimental": false,
+          "id": "prime",
+          "label": "/prime"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Deep delegated research: planned sub-questions answered in isolated sub-agent contexts",
+          "experimental": false,
+          "id": "research",
+          "label": "/research"
+        },
+        {
+          "default": true,
+          "dep": true,
+          "desc": "deep-research-analyst, docs-scraper, tech-research",
+          "experimental": false,
+          "id": "ctx_agents",
+          "label": "Context agents"
+        }
+      ],
+      "kind": "core",
+      "label": "Context Commands",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": false,
+      "dependencies": [],
+      "desc": "Native Claude Code agent teams with bidirectional messaging and shared task lists for collaborative cross-layer work",
+      "experimental": true,
+      "group": "Core Development",
+      "icon": "users",
+      "id": "agent_team",
+      "items": [
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Team planning",
+          "experimental": false,
+          "id": "team_plan",
+          "label": "/team:plan"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Team implementation",
+          "experimental": false,
+          "id": "team_implement",
+          "label": "/team:implement"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Team help",
+          "experimental": false,
+          "id": "team_help",
+          "label": "/team:help"
+        }
+      ],
+      "kind": "core",
+      "label": "Agent Teams (Experimental)",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": false,
+      "dependencies": [],
+      "desc": "Automated Development Workflow: plan-build-test-review pipelines running unattended in isolated worktrees with traceable logs",
+      "experimental": false,
+      "group": "Advanced Workflows",
+      "icon": "robot",
+      "id": "adw",
+      "items": [
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Plan workflow",
+          "experimental": false,
+          "id": "adw_plan",
+          "label": "adw_plan.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Build workflow",
+          "experimental": false,
+          "id": "adw_build",
+          "label": "adw_build.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Test workflow",
+          "experimental": false,
+          "id": "adw_test",
+          "label": "adw_test.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Full pipeline",
+          "experimental": false,
+          "id": "adw_pipeline",
+          "label": "adw_pipeline.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Plan + build combined",
+          "experimental": false,
+          "id": "adw_plan_build",
+          "label": "adw_plan_build.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Document workflow",
+          "experimental": false,
+          "id": "adw_document",
+          "label": "adw_document.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Patch workflow",
+          "experimental": false,
+          "id": "adw_patch",
+          "label": "adw_patch.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Epic plan workflow",
+          "experimental": false,
+          "id": "adw_epic",
+          "label": "adw_epic_plan.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Integration tests",
+          "experimental": false,
+          "id": "adw_int_test",
+          "label": "adw_integration_test.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Unit tests",
+          "experimental": false,
+          "id": "adw_unit_test",
+          "label": "adw_unit_test.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "UI tests",
+          "experimental": false,
+          "id": "adw_ui_test",
+          "label": "adw_ui_test.py"
+        },
+        {
+          "default": false,
+          "dep": true,
+          "desc": "Shared modules used by workflows",
+          "experimental": false,
+          "id": "adw_modules",
+          "label": "adw_modules/"
+        },
+        {
+          "default": false,
+          "dep": true,
+          "desc": "plan-feature, plan-bug, etc.",
+          "experimental": false,
+          "id": "adw_cmds",
+          "label": "ADW slash commands"
+        }
+      ],
+      "kind": "power",
+      "label": "ADW Workflows (Disabled)",
+      "scope": []
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Bottom-of-terminal status bar showing current branch, model, token budget, and context usage",
+      "experimental": false,
+      "group": "Hooks & DX",
+      "icon": "terminal",
+      "id": "status_line",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Deployed as a whole directory. Local edits are overwritten on upgrade (warn then replace).",
+          "experimental": false,
+          "id": "statusline_sh",
+          "label": "status_line.py"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Register the status_line.py command in settings.json",
+          "experimental": false,
+          "id": "statusline_cfg",
+          "label": "settings hook"
+        }
+      ],
+      "kind": "core",
+      "label": "Status Line",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": false,
+      "dependencies": [],
+      "desc": "Notification and Stop hooks that fire macOS notifications and TTS (ElevenLabs / system say) when Claude needs attention",
+      "experimental": false,
+      "group": "Hooks & DX",
+      "icon": "bell",
+      "id": "notification",
+      "items": [
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Notification hook",
+          "experimental": false,
+          "id": "notify_hook",
+          "label": "notification.py"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Stop event hook",
+          "experimental": false,
+          "id": "stop_hook",
+          "label": "stop.py"
+        },
+        {
+          "default": false,
+          "dep": true,
+          "desc": "ElevenLabs / macOS say() bridges",
+          "experimental": false,
+          "id": "tts_utils",
+          "label": "TTS utilities"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "TTS API keys template",
+          "experimental": false,
+          "id": "env_sample",
+          "label": ".env.sample"
+        }
+      ],
+      "kind": "core",
+      "label": "Notifications & TTS",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": false,
+      "dependencies": [],
+      "desc": "Single hook that captures every tool-call event under .claude/logs/ for full session traceability",
+      "experimental": false,
+      "group": "Hooks & DX",
+      "icon": "file-text",
+      "id": "session_logger",
+      "items": [
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Logs every hook event to .claude/logs/",
+          "experimental": false,
+          "id": "session_hook",
+          "label": "session_logger.py"
+        }
+      ],
+      "kind": "core",
+      "label": "Session Logger",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Defence-in-depth pre-tool hooks that intercept Bash, Read, Edit, Write before they run (complements settings.json permissions)",
+      "experimental": false,
+      "group": "Hooks & DX",
+      "icon": "shield",
+      "id": "damage_control",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Full skill tree: SKILL.md, hooks/, cookbook/, reference/. Deployed as one unit. User-owned patterns.yaml is preserved on upgrade.",
+          "experimental": false,
+          "id": "dc_skill",
+          "label": "damage-control skill"
+        }
+      ],
+      "kind": "shared",
+      "label": "Damage Control",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Response-format presets that change how Claude presents results without changing what it does",
+      "experimental": false,
+      "group": "Enhancements",
+      "icon": "palette",
+      "id": "output_styles",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Hierarchical bullets with ACTION:/TODO: prefixes for scanning and status updates",
+          "experimental": false,
+          "id": "style_bullets",
+          "label": "bullet-points.md"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Absolute minimum words, no explanations, direct actions only",
+          "experimental": false,
+          "id": "style_ultra_concise",
+          "label": "ultra-concise.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Code-first, fragments over sentences, same spirit as ultra-concise",
+          "experimental": false,
+          "id": "style_concise_ultra",
+          "label": "concise-ultra.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Full markdown features: headers, tables, blockquotes, task lists",
+          "experimental": false,
+          "id": "style_markdown",
+          "label": "markdown-focused.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Information organised in markdown tables wherever possible",
+          "experimental": false,
+          "id": "style_table",
+          "label": "table-based.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Clean HTML5 output with data attributes for file references and actions",
+          "experimental": false,
+          "id": "style_html",
+          "label": "html-structured.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Machine-readable YAML with hierarchical key-value pairs",
+          "experimental": false,
+          "id": "style_yaml",
+          "label": "yaml-structured.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Complete self-contained HTML documents opened in the browser (visual output)",
+          "experimental": false,
+          "id": "style_genui",
+          "label": "genui.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Ultra-concise responses with brief TTS task notification at end",
+          "experimental": false,
+          "id": "style_concise_tts",
+          "label": "concise-tts.md"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Normal responses with brief TTS task notification at end",
+          "experimental": false,
+          "id": "style_tts_summary",
+          "label": "tts-summary.md"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Standard responses plus a macOS system notification when the task finishes",
+          "experimental": false,
+          "id": "style_system_notify",
+          "label": "system-notify.md"
+        }
+      ],
+      "kind": "shared",
+      "label": "Output Styles",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Housekeeping commands for archiving completed specs and other project-maintenance chores",
+      "experimental": false,
+      "group": "Admin & Maintenance",
+      "icon": "settings",
+      "id": "admin",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Archive completed specs",
+          "experimental": false,
+          "id": "archive_specs",
+          "label": "/admin:archive-specs"
+        }
+      ],
+      "kind": "core",
+      "label": "Admin Commands",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Track installed SDK version, upgrade from a local archive, and surface a changelog for current and future releases",
+      "experimental": false,
+      "group": "Admin & Maintenance",
+      "icon": "package",
+      "id": "sdk",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Upgrade the deployed SDK from a local archive (.tar.gz or directory)",
+          "experimental": false,
+          "id": "sdk_update",
+          "label": "/sdk:update"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Show the installed SDK version plus deployment metadata (manifest, target, agent)",
+          "experimental": false,
+          "id": "sdk_version",
+          "label": "/sdk:version"
+        },
+        {
+          "default": true,
+          "dep": true,
+          "desc": "Version history",
+          "experimental": false,
+          "id": "sdk_changelog",
+          "label": "SDK_CHANGELOG.md"
+        }
+      ],
+      "kind": "core",
+      "label": "SDK Management",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Conventional Commits, meaningful branch names, structured PRs, and isolated worktrees",
+      "experimental": false,
+      "group": "Integrations",
+      "icon": "git-branch",
+      "id": "git",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Stage changes, synthesise a Conventional Commits message from session context + diff, and commit",
+          "experimental": false,
+          "id": "git_commit",
+          "label": "/git:commit"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Generate a Conventional Commits message from the current diff without committing",
+          "experimental": false,
+          "id": "git_message",
+          "label": "/git:message"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Generate a standardised type/description branch name and create/checkout the branch",
+          "experimental": false,
+          "id": "git_branch",
+          "label": "/git:branch"
+        },
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Create a GitHub PR with title, body, test plan, and optional issue linkage from the current branch",
+          "experimental": false,
+          "id": "git_pr",
+          "label": "/git:pr"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Configure an isolated git worktree under trees/ so a task can run without touching the main checkout",
+          "experimental": false,
+          "id": "git_wt_setup",
+          "label": "/git:worktree-setup"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Install dependencies and allocate ports inside a worktree so its app can run in parallel with others",
+          "experimental": false,
+          "id": "git_wt_install",
+          "label": "/git:worktree-install"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Remove merged worktrees and release their allocated ports",
+          "experimental": false,
+          "id": "git_wt_clean",
+          "label": "/git:worktree-cleanup"
+        }
+      ],
+      "kind": "core",
+      "label": "Git Commands",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": true,
+      "dependencies": [],
+      "desc": "Pull DEV-XXX task context from ClickUp into commit messages and spec creation",
+      "experimental": false,
+      "group": "Integrations",
+      "icon": "check-square",
+      "id": "clickup",
+      "items": [
+        {
+          "default": true,
+          "dep": false,
+          "desc": "Create a task",
+          "experimental": false,
+          "id": "cu_task",
+          "label": "/clickup:task"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Sync tasks",
+          "experimental": false,
+          "id": "cu_sync",
+          "label": "/clickup:sync"
+        }
+      ],
+      "kind": "core",
+      "label": "ClickUp Integration",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    },
+    {
+      "default": false,
+      "dependencies": [],
+      "desc": "Focused-task agents spawned by commands to work in isolated context (keeps the main conversation clean)",
+      "experimental": false,
+      "group": "Analysis & Utility",
+      "icon": "users",
+      "id": "utility_agents",
+      "items": [
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Audits code for OWASP-style vulnerabilities, insecure defaults, and sensitive-data handling issues",
+          "experimental": false,
+          "id": "sec_audit",
+          "label": "security-vulnerability-auditor"
+        },
+        {
+          "default": false,
+          "dep": false,
+          "desc": "Drafts and refines prompts for agents, skills, and slash commands",
+          "experimental": false,
+          "id": "prompt_eng",
+          "label": "prompt-engineer"
+        }
+      ],
+      "kind": "power",
+      "label": "Utility Agents",
+      "scope": [
+        "repo",
+        "homedir"
+      ]
+    }
+  ],
+  "schemaVersion": 1,
+  "sdkVersion": "0.6.1"
+}

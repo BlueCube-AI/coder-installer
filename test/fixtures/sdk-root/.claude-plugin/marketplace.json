@@ -1,0 +1,7 @@
+{
+  "name": "bluecube-coder",
+  "plugins": [
+    { "name": "kb-knowledge-graph", "description": "Knowledge graph plugin" },
+    { "name": "bluecube-sdlc", "description": "SDLC pipeline plugin" }
+  ]
+}
