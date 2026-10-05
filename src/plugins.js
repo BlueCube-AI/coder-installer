@@ -2,6 +2,14 @@ import * as messages from './messages.js';
 
 export const MARKETPLACE_NAME = 'bluecube-coder';
 const LIST_TIMEOUT_MS = 60000;
+const HELP_TIMEOUT_MS = 30000;
+
+// Older Claude Code releases reject these options with "unknown option", so the help
+// text is checked first instead of failing on every plugin command.
+const REQUIRED_OPTIONS = [
+  { args: ['plugin', 'marketplace', 'add', '--help'], option: '--sparse' },
+  { args: ['plugin', 'install', '--help'], option: '--scope' },
+];
 
 export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 
@@ -22,6 +30,14 @@ export function planPluginCommands({ selected, scope }) {
   ];
 }
 
+async function supportsPluginOptions({ exec, target }) {
+  for (const { args, option } of REQUIRED_OPTIONS) {
+    const result = await exec('claude', args, { cwd: target, timeoutMs: HELP_TIMEOUT_MS });
+    if (result.code !== 0 || !result.stdout.includes(option)) return false;
+  }
+  return true;
+}
+
 function listsMarketplace(stdout) {
   try {
     const data = JSON.parse(stdout);
@@ -34,7 +50,8 @@ function listsMarketplace(stdout) {
 
 /**
  * Run the plan in `target`. Failures are collected, not thrown, so the deploy result
- * still stands. Returns one {step, status, code?} per step: ok, failed, skipped or dry-run.
+ * still stands. Returns one {step, status, code?} per step: ok, failed, skipped, outdated
+ * (the claude CLI lacks an option the plan needs) or dry-run.
  */
 export async function runPluginCommands({ exec, plan, dryRun, target, claudePresent, log }) {
   if (plan.length === 0) return [];
@@ -45,6 +62,10 @@ export async function runPluginCommands({ exec, plan, dryRun, target, claudePres
   if (!claudePresent) {
     log(messages.pluginSkippedNoClaude);
     return plan.map((step) => ({ step, status: 'skipped' }));
+  }
+  if (!(await supportsPluginOptions({ exec, target }))) {
+    log(messages.pluginClaudeTooOld);
+    return plan.map((step) => ({ step, status: 'outdated' }));
   }
 
   const listed = await exec('claude', ['plugin', 'marketplace', 'list', '--json'], { cwd: target, timeoutMs: LIST_TIMEOUT_MS });

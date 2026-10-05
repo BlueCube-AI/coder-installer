@@ -68,6 +68,21 @@ describe('nextSteps', () => {
     assert.equal(nextSteps({ agent: CLAUDE, scope: 'repo', categories: ['git'], pluginResults: [] }).length, 1);
   });
 
+  it('should ask for a Claude Code update before the outdated plugin commands', () => {
+    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo' });
+    const lines = nextSteps({
+      agent: CLAUDE,
+      scope: 'repo',
+      categories: ['git'],
+      pluginResults: plan.map((step) => ({ step, status: 'outdated' })),
+    });
+    assert.deepEqual(lines.slice(1), [
+      'Update Claude Code with `claude update`, then run the plugin commands below',
+      'Run by hand: claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins',
+      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
+    ]);
+  });
+
   it('should render under a Next steps heading', () => {
     const log = collectLog();
     printSummary(['a', 'b'], log);

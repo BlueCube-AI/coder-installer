@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import * as messages from '../src/messages.js';
 import { planPluginCommands, runPluginCommands } from '../src/plugins.js';
 import { collectLog, fakeExec } from './helpers.js';
 
 const ADD = ['plugin', 'marketplace', 'add', 'BlueCube-AI/bluecube-coder', '--sparse', '.claude-plugin', 'plugins'];
 const LIST = ['plugin', 'marketplace', 'list', '--json'];
+const HELP_ADD = ['plugin', 'marketplace', 'add', '--help'];
+const HELP_INSTALL = ['plugin', 'install', '--help'];
+
+// Answers the option checks like a current Claude Code and everything else with `handler`
+const currentClaude = (handler = () => ({})) => (cmd, args, opts) =>
+  (args.includes('--help') ? { stdout: '  --scope <scope>\n  --sparse <paths...>' } : handler(cmd, args, opts));
 
 describe('planPluginCommands', () => {
   it('should add the marketplace, then install each plugin at project scope for repo', () => {
@@ -30,22 +37,38 @@ describe('planPluginCommands', () => {
 describe('runPluginCommands', () => {
   const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo' });
 
-  it('should list first, then add and install in the target', async () => {
-    const exec = fakeExec((cmd, args) => (args.includes('list') ? { stdout: '[]' } : {}));
+  it('should check the options, list, then add and install in the target', async () => {
+    const exec = fakeExec(currentClaude((cmd, args) => (args.includes('list') ? { stdout: '[]' } : {})));
     const results = await runPluginCommands({ exec, plan, target: '/w/app', claudePresent: true, log: collectLog() });
-    assert.deepEqual(exec.calls.map((c) => c.args), [LIST, ADD, plan[1].args]);
+    assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, HELP_INSTALL, LIST, ADD, plan[1].args]);
     assert.ok(exec.calls.every((c) => c.cmd === 'claude' && c.opts.cwd === '/w/app'));
     assert.deepEqual(results.map((r) => r.status), ['ok', 'ok']);
   });
 
   it('should skip the add when the marketplace is already listed', async () => {
-    const exec = fakeExec((cmd, args) => (args.includes('list') ? { stdout: JSON.stringify([{ name: 'bluecube-coder' }]) } : {}));
+    const exec = fakeExec(currentClaude((cmd, args) => (args.includes('list') ? { stdout: JSON.stringify([{ name: 'bluecube-coder' }]) } : {})));
     await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log: collectLog() });
-    assert.deepEqual(exec.calls.map((c) => c.args), [LIST, plan[1].args]);
+    assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, HELP_INSTALL, LIST, plan[1].args]);
+  });
+
+  it('should mark every step outdated and run nothing when claude lacks an option', async () => {
+    const exec = fakeExec((cmd, args) => (args.includes('--help') ? { stdout: 'Options:\n  -h, --help' } : {}));
+    const log = collectLog();
+    const results = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log });
+    assert.ok(exec.calls.every((c) => c.args.includes('--help')));
+    assert.deepEqual(results.map((r) => r.status), ['outdated', 'outdated']);
+    assert.deepEqual(log.lines, [messages.pluginClaudeTooOld]);
+  });
+
+  it('should mark every step outdated when claude has no plugin command', async () => {
+    const exec = fakeExec(() => ({ code: 1, stderr: "error: unknown command 'plugin'" }));
+    const results = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log: collectLog() });
+    assert.equal(exec.calls.length, 1);
+    assert.deepEqual(results.map((r) => r.status), ['outdated', 'outdated']);
   });
 
   it('should collect a failure instead of throwing', async () => {
-    const exec = fakeExec((cmd, args) => (args[1] === 'install' ? { code: 1 } : { stdout: '[]' }));
+    const exec = fakeExec(currentClaude((cmd, args) => (args[1] === 'install' ? { code: 1 } : { stdout: '[]' })));
     const log = collectLog();
     const results = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log });
     assert.deepEqual(results.map((r) => r.status), ['ok', 'failed']);

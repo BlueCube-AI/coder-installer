@@ -45,17 +45,32 @@ export const uvInstallFailed = 'The uv install command failed. Install uv by han
 export const uvNotOnPath = 'uv was installed but is not on PATH yet. Open a new terminal and run the installer again.';
 
 export const gitMissing = 'git is not installed. Install git (https://git-scm.com/downloads) and run the installer again.';
+const gitSaid = (stderr) => {
+  const details = (stderr || '').trim().split('\n').filter(Boolean).map((line) => `    ${line}`).join('\n');
+  return details ? `\n\n  git said:\n${details}` : '';
+};
+const sshAlternative = `Or use SSH: set BLUECUBE_SDK_URL=git@github.com:${MARKETPLACE_REPO}.git after adding your SSH key to GitHub.`;
+
 export const gitAccessFailed = (url, stderr, timedOut) => {
   const reason = timedOut ? 'The request timed out after 30 seconds.' : 'git could not read the repository.';
-  const details = (stderr || '').trim().split('\n').filter(Boolean).map((line) => `    ${line}`).join('\n');
   return `Cannot reach the BlueCube SDK repository at ${url}.
 ${reason} The repository is private, so git needs your GitHub credentials:
 
   gh auth login
   gh auth setup-git
 
-Or use SSH: set BLUECUBE_SDK_URL=git@github.com:${MARKETPLACE_REPO}.git after adding your SSH key to GitHub.${details ? `\n\n  git said:\n${details}` : ''}`;
+${sshAlternative}${gitSaid(stderr)}`;
 };
+export const gitNoAccess = (url, stderr) => `Cannot read the BlueCube SDK repository at ${url}.
+git signed in to GitHub, but the account it used cannot see this repository. Usually git is
+using another account or an old saved login, not the one that was given access:
+
+  gh auth status       # shows the account gh is signed in with
+  gh auth login        # sign in with the account that has access (gh auth switch if you have several)
+  gh auth setup-git    # makes git use that login for github.com
+
+If that is the right account, ask BlueCube for read access to ${MARKETPLACE_REPO}.
+${sshAlternative}${gitSaid(stderr)}`;
 
 // -- source -------------------------------------------------------------------
 export const sourceClone = (url, slot) => `Source: git clone ${url} into ${slot}`;
@@ -108,9 +123,12 @@ export const promptInNonInteractive = (question) => `A question was needed in no
 export const deployFailed = (code) => `deploy.py exited with code ${code}.`;
 export const pluginFailed = (command, code) => `Plugin command failed (exit ${code}): ${command}`;
 export const pluginSkippedNoClaude = 'The claude CLI is not on PATH, so the plugins were not installed.';
+export const pluginClaudeTooOld =
+  'This Claude Code version is too old to install plugins from the command line (its plugin commands lack --sparse or --scope), so the plugins were not installed.';
 export const unexpectedError = (message) => `Unexpected error: ${message}`;
 
 export const nextStepsHeading = 'Next steps';
 export const nextStepSession = (displayName) => `Start a new ${displayName} session to load the new commands`;
 export const nextStepHooks = (settingsPath) => `Review the hooks under ${settingsPath} before you trust them`;
+export const nextStepUpdateClaude = 'Update Claude Code with `claude update`, then run the plugin commands below';
 export const nextStepPlugin = (command) => `Run by hand: ${command}`;

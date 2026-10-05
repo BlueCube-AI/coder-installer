@@ -5,6 +5,9 @@ import { CliError, EXIT } from './cli.js';
 import * as messages from './messages.js';
 
 const GIT_PROBE_TIMEOUT_MS = 30000;
+// GitHub answers "Repository not found" when git sent credentials for an account that
+// cannot see the repository. With no credentials at all, git fails before that.
+const NO_ACCESS_PATTERN = /repository not found/i;
 
 // From https://docs.astral.sh/uv/getting-started/installation/
 export const UV_INSTALL = {
@@ -45,6 +48,10 @@ export async function ensureGitAccess({ exec, which, url }) {
   if (!which('git')) throw new CliError(EXIT.PREFLIGHT, messages.gitMissing);
   const result = await exec('git', ['ls-remote', '--exit-code', url, 'HEAD'], { timeoutMs: GIT_PROBE_TIMEOUT_MS });
   if (result.code !== 0 || result.timedOut) {
-    throw new CliError(EXIT.PREFLIGHT, messages.gitAccessFailed(url, result.stderr, result.timedOut));
+    const noAccess = !result.timedOut && NO_ACCESS_PATTERN.test(result.stderr ?? '');
+    const message = noAccess
+      ? messages.gitNoAccess(url, result.stderr)
+      : messages.gitAccessFailed(url, result.stderr, result.timedOut);
+    throw new CliError(EXIT.PREFLIGHT, message);
   }
 }
