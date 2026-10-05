@@ -77,6 +77,21 @@ describe('ensureGitAccess', () => {
       assert.match(err.message, /gh auth setup-git/);
       assert.match(err.message, /SSH/);
       assert.match(err.message, /    fatal: Authentication failed/);
+      assert.doesNotMatch(err.message, /cannot see this repository/);
+      return true;
+    });
+  });
+
+  it('should exit 2 with the account steps when GitHub says the repository is not found', async () => {
+    const stderr = "remote: Repository not found.\nfatal: repository 'https://github.com/BlueCube-AI/bluecube-coder.git/' not found";
+    const exec = fakeExec(() => ({ code: 128, stderr }));
+    await assert.rejects(ensureGitAccess({ exec, which: fakeWhich(['git']), url }), (err) => {
+      assert.ok(isPreflight(err));
+      assert.equal(err.message, messages.gitNoAccess(url, stderr));
+      assert.match(err.message, /cannot see this repository/);
+      assert.match(err.message, /gh auth status/);
+      assert.match(err.message, /gh auth setup-git/);
+      assert.match(err.message, /    remote: Repository not found\./);
       return true;
     });
   });

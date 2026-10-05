@@ -2,6 +2,7 @@ import * as messages from './messages.js';
 import { formatClaudeCommand } from './plugins.js';
 
 const HOOK_CATEGORIES = ['damage_control', 'notification'];
+const PENDING_PLUGIN_STATUSES = ['failed', 'skipped', 'outdated'];
 
 /** Lines to print after a successful install. */
 export function nextSteps({ agent, scope, categories, pluginResults }) {
@@ -10,8 +11,11 @@ export function nextSteps({ agent, scope, categories, pluginResults }) {
     const configRoot = scope === 'homedir' ? agent.homedirPath : agent.configDir;
     lines.push(messages.nextStepHooks(`${configRoot}/settings.json`));
   }
+  if (pluginResults.some(({ status }) => status === 'outdated')) {
+    lines.push(messages.nextStepUpdateClaude);
+  }
   for (const { step, status } of pluginResults) {
-    if (status === 'failed' || status === 'skipped') {
+    if (PENDING_PLUGIN_STATUSES.includes(status)) {
       lines.push(messages.nextStepPlugin(formatClaudeCommand(step.args)));
     }
   }
