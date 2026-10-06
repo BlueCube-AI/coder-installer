@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { CliError, EXIT, parseCli } from '../src/cli.js';
+import { CliError, EXIT, installDir, parseCli } from '../src/cli.js';
 import { main } from '../src/index.js';
 import {
   collectLog, fakeExec, fakePrompt, fakeWhich, legacyDeclaration, registryFixture, writeJson,
@@ -46,6 +46,13 @@ describe('parseCli', () => {
     assert.equal(parseCli([], PKG, CTX).target, null);
   });
 
+  it('should record the flag that chose the home scope', () => {
+    assert.equal(parseCli(['-g'], PKG, CTX).scopeFlag, '-g');
+    assert.equal(parseCli(['--scope', 'homedir'], PKG, CTX).scopeFlag, '--scope homedir');
+    assert.equal(parseCli(['--scope', 'repo'], PKG, CTX).scopeFlag, null);
+    assert.equal(parseCli([], PKG, CTX).scopeFlag, null);
+  });
+
   it('should split --categories on commas', () => {
     assert.deepEqual(parseCli(['--categories', 'git, context,,'], PKG, CTX).categories, ['git', 'context']);
   });
@@ -66,6 +73,20 @@ describe('parseCli', () => {
     const custom = parseCli([], PKG, { ...CTX, env: { BLUECUBE_SDK_URL: 'file:///sdk', BLUECUBE_CACHE_DIR: '/c' } });
     assert.equal(custom.sdkUrl, 'file:///sdk');
     assert.equal(custom.cacheDir, '/c');
+  });
+});
+
+describe('installDir', () => {
+  const agent = { configDir: '.claude' };
+
+  it('should name the project folder on a repo run', () => {
+    assert.equal(installDir({ scope: 'repo', agent, cwd: '/work/app', target: null }), path.join('/work/app', '.claude'));
+    assert.equal(installDir({ scope: 'repo', agent, cwd: '/work/app', target: '/t' }), path.join('/t', '.claude'));
+  });
+
+  it('should name the home folder on a home run, or the --target folder', () => {
+    assert.equal(installDir({ scope: 'homedir', agent, cwd: '/work/app', target: null }), '~/.claude');
+    assert.equal(installDir({ scope: 'homedir', agent, cwd: '/work/app', target: '/t' }), path.join('/t', '.claude'));
   });
 });
 
@@ -127,7 +148,34 @@ describe('exit mapping', () => {
     d.exec = catalogExec();
     d.prompt = { confirm: fail, select: fail, groupMultiselect: fail };
     assert.equal(await main(['--agent', 'claude-code', '-g', '--categories', 'git', '--yes'], d), EXIT.OK);
-    assert.ok(d.log.lines.includes('Next steps'));
+    const heading = d.log.lines.indexOf('Installed for every project (~/.claude):');
+    assert.ok(heading !== -1 && heading < d.log.lines.indexOf('Next steps'));
+    assert.equal(d.log.lines[heading + 1], '  - Git Commands');
+  });
+
+  it('should list what a repo run installed for this project before Next steps', async () => {
+    const { configDir } = registryFixture();
+    const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+    d.exec = catalogExec();
+    d.prompt = { confirm: fail, select: fail, groupMultiselect: fail };
+
+    assert.equal(await main(['--agent', 'claude-code', '--scope', 'repo', '--categories', 'git', '--yes'], d), EXIT.OK);
+
+    const heading = d.log.lines.indexOf(`Installed for this project (${path.join('/w', '.claude')}):`);
+    assert.ok(heading !== -1 && heading < d.log.lines.indexOf('Next steps'));
+    assert.equal(d.log.lines[heading + 1], '  - Git Commands');
+  });
+
+  it('should refuse a project-only id on a home run before deploying anything', async () => {
+    const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache() } });
+    d.exec = catalogExec({ fixture: 'catalog-claude-code-1.1.0.json' });
+
+    const code = await main(['--agent', 'claude-code', '-g', '--categories', 'git,damage_control', '--yes'], d);
+
+    assert.equal(code, EXIT.PREFLIGHT);
+    assert.match(d.logError.lines.join('\n'), /^Damage Control \(damage_control\) can't be installed with -g\./);
+    assert.ok(!d.exec.calls.some((c) => c.args.includes('--non-interactive')));
+    assert.ok(!d.exec.calls.some((c) => c.cmd === 'claude'));
   });
 
   it('should map a rolled-back plugin migration to 1 after printing the report', async () => {
@@ -182,7 +230,7 @@ async function tmpCache() {
 
 // Fake exec that simulates git (creating the slot on clone), uv for catalog and deploy, and a
 // current claude CLI whose plugin commands answer with `claude`.
-function catalogExec({ deployCode = 0, claude = () => ({}) } = {}) {
+function catalogExec({ deployCode = 0, claude = () => ({}), fixture = 'catalog-claude-code.json' } = {}) {
   return fakeExec(async (cmd, args) => {
     if (cmd === 'claude') return args.includes('--help') ? { stdout: '--scope --sparse' } : claude(args);
     if (cmd === 'git' && args[0] === 'clone') {
@@ -190,8 +238,7 @@ function catalogExec({ deployCode = 0, claude = () => ({}) } = {}) {
     }
     if (cmd === 'git' && args[0] === 'rev-parse') return { stdout: 'a'.repeat(40) };
     if (cmd === 'uv' && args.includes('--list-categories')) {
-      const fixture = new URL('./fixtures/catalog-claude-code.json', import.meta.url);
-      return { stdout: fs.readFileSync(fixture, 'utf8') };
+      return { stdout: fs.readFileSync(new URL(`./fixtures/${fixture}`, import.meta.url), 'utf8') };
     }
     if (cmd === 'uv') return { code: deployCode };
     return {};

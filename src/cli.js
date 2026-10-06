@@ -40,6 +40,15 @@ export function defaultTarget(scope, { cwd = process.cwd(), homedir = os.homedir
   return scope === 'homedir' ? homedir : cwd;
 }
 
+/**
+ * The folder a run writes to, as the user reads it. The headless deploy writes to
+ * <target>/<configDir>, and its home target is the home directory.
+ */
+export function installDir({ scope, agent, cwd, target }) {
+  if (scope === 'repo') return path.join(target ?? cwd, agent.configDir);
+  return target ? path.join(target, agent.configDir) : `~/${agent.configDir}`;
+}
+
 export function parseCli(argv, pkg, { env = process.env, cwd = process.cwd(), homedir = os.homedir() } = {}) {
   let values;
   try {
@@ -55,6 +64,10 @@ export function parseCli(argv, pkg, { env = process.env, cwd = process.cwd(), ho
     throw new CliError(EXIT.PREFLIGHT, messages.scopeConflict);
   }
   const scope = values.global ? 'homedir' : (values.scope ?? null);
+  // The flag that chose the home scope, so a refusal names what the user typed.
+  let scopeFlag = null;
+  if (values.global) scopeFlag = '-g';
+  else if (values.scope === 'homedir') scopeFlag = '--scope homedir';
 
   const categories = values.categories === undefined
     ? null
@@ -67,6 +80,7 @@ export function parseCli(argv, pkg, { env = process.env, cwd = process.cwd(), ho
     help: Boolean(values.help),
     version: Boolean(values.version),
     scope,
+    scopeFlag,
     agent: values.agent ?? null,
     categories,
     ref: values.ref ?? pkg.bluecube.sdkRef,

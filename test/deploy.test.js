@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import { buildDeployArgs, runDeploy } from '../src/deploy.js';
+import { projectOnlyCategories } from '../src/picker.js';
 import { planPluginCommands, wantedSource } from '../src/plugins.js';
-import { nextSteps, printSummary } from '../src/report.js';
+import { installedBlocks, nextSteps, printSummary } from '../src/report.js';
 import { collectLog, fakeExec } from './helpers.js';
 
 const CLAUDE = { name: 'claude-code', displayName: 'Claude Code', configDir: '.claude', homedirPath: '~/.claude' };
+const PROJECT_ONLY = projectOnlyCategories(JSON.parse(
+  fs.readFileSync(new URL('./fixtures/catalog-claude-code-1.1.0.json', import.meta.url), 'utf8'),
+));
+const NOT_AVAILABLE = 'Not available here: Project Memory, Status Line, Notifications & TTS, Session Logger, Damage Control. '
+  + 'Run npx @bluecube-ai/coder inside a project to add them.';
 const freshPlan = (selected, scope) => planPluginCommands({
   selected, scope, wanted: wantedSource('https://github.com/BlueCube-AI/bluecube-coder.git'), migration: null, installed: [], pinned: {},
 });
@@ -59,16 +67,26 @@ describe('nextSteps', () => {
     assert.deepEqual(lines, [
       'Start a new Claude Code session to load the new commands',
       'Review the hooks under .claude/settings.json before you trust them',
-      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
+      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope user',
     ]);
   });
 
-  it('should point at the home config for a homedir install and skip hooks when none were installed', () => {
-    assert.deepEqual(
-      nextSteps({ agent: CLAUDE, scope: 'homedir', categories: ['notification'], pluginResults: [] })[1],
-      'Review the hooks under ~/.claude/settings.json before you trust them',
-    );
+  it('should print the hooks line after repo installs only', () => {
+    assert.deepEqual(nextSteps({ agent: CLAUDE, scope: 'homedir', categories: ['notification'], pluginResults: [] }), [
+      'Start a new Claude Code session to load the new commands',
+    ]);
     assert.equal(nextSteps({ agent: CLAUDE, scope: 'repo', categories: ['git'], pluginResults: [] }).length, 1);
+  });
+
+  it('should name the project-only entries right after the session line on a home run', () => {
+    const lines = nextSteps({ agent: CLAUDE, scope: 'homedir', categories: ['git'], pluginResults: [], projectOnly: PROJECT_ONLY });
+    assert.deepEqual(lines, ['Start a new Claude Code session to load the new commands', NOT_AVAILABLE]);
+  });
+
+  it('should not name the project-only entries on a repo run or without any', () => {
+    const repo = nextSteps({ agent: CLAUDE, scope: 'repo', categories: ['git'], pluginResults: [], projectOnly: PROJECT_ONLY });
+    const none = nextSteps({ agent: CLAUDE, scope: 'homedir', categories: ['git'], pluginResults: [], projectOnly: [] });
+    assert.ok(![...repo, ...none].includes(NOT_AVAILABLE));
   });
 
   it('should ask for a Claude Code update before the outdated plugin commands', () => {
@@ -82,7 +100,7 @@ describe('nextSteps', () => {
     assert.deepEqual(lines.slice(1), [
       'Update Claude Code with `claude update`, then run the plugin commands below',
       'Run by hand: claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins',
-      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
+      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope user',
     ]);
   });
 
@@ -133,7 +151,52 @@ describe('nextSteps', () => {
 
   it('should render under a Next steps heading', () => {
     const log = collectLog();
-    printSummary(['a', 'b'], log);
+    printSummary([], ['a', 'b'], log);
     assert.deepEqual(log.lines, ['', 'Next steps', '  - a', '  - b']);
+  });
+});
+
+describe('installed summary', () => {
+  const summary = (args) => {
+    const log = collectLog();
+    printSummary(installedBlocks({ agent: CLAUDE, target: '/w', targetGiven: false, ...args }), ['a'], log);
+    return log.lines;
+  };
+
+  it('should list categories under this project and plugins under every project on a repo run', () => {
+    assert.deepEqual(summary({ scope: 'repo', categoryLabels: ['Git Commands'], pluginNames: ['bluecube-sdlc'] }), [
+      '',
+      `Installed for this project (${path.join('/w', '.claude')}):`,
+      '  - Git Commands',
+      '',
+      'Installed for every project (~/.claude):',
+      '  - bluecube-sdlc',
+      '',
+      'Next steps',
+      '  - a',
+    ]);
+  });
+
+  it('should list categories, then plugins, in one block on a home run', () => {
+    assert.deepEqual(summary({ scope: 'homedir', target: '/h', categoryLabels: ['Git Commands'], pluginNames: ['bluecube-sdlc'] }), [
+      '',
+      'Installed for every project (~/.claude):',
+      '  - Git Commands',
+      '  - bluecube-sdlc',
+      '',
+      'Next steps',
+      '  - a',
+    ]);
+  });
+
+  it('should name the --target folder on a home run given one', () => {
+    const blocks = installedBlocks({ scope: 'homedir', agent: CLAUDE, target: '/t', targetGiven: true, categoryLabels: ['Git Commands'], pluginNames: [] });
+    assert.deepEqual(blocks.map((block) => block.heading), [`Installed for every project (${path.join('/t', '.claude')}):`]);
+  });
+
+  it('should leave out an empty block, and print only Next steps when nothing was installed', () => {
+    assert.ok(!summary({ scope: 'repo', categoryLabels: ['Git Commands'], pluginNames: [] }).some((line) => line.startsWith('Installed for every')));
+    assert.deepEqual(summary({ scope: 'repo', categoryLabels: [], pluginNames: [] }), ['', 'Next steps', '  - a']);
+    assert.deepEqual(summary({ scope: 'homedir', categoryLabels: [], pluginNames: [] }), ['', 'Next steps', '  - a']);
   });
 });

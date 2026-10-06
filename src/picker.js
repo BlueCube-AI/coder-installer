@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import * as clack from '@clack/prompts';
 
-import { CliError, EXIT } from './cli.js';
+import { CliError, EXIT, installDir } from './cli.js';
 import * as messages from './messages.js';
 
 export const HIDDEN_GROUP = 'BlueCube Marketplace';
@@ -83,14 +83,14 @@ export async function chooseHarness({ detected, agents, prompt, requested, ref, 
   return supported.get(name);
 }
 
-export async function chooseScope({ options, prompt }) {
+export async function chooseScope({ options, prompt, agent, projectOnly = [] }) {
   if (options.scope) return options.scope;
+  const dir = (scope) => installDir({ scope, agent, cwd: options.cwd, target: options.target });
+  const home = { value: 'homedir', label: messages.scopeHomedirLabel(dir('homedir')) };
+  if (projectOnly.length) home.hint = messages.projectOnlyNotAvailable(projectOnly.map(({ label }) => label));
   return prompt.select({
     message: messages.scopePrompt,
-    options: [
-      { value: 'repo', label: messages.scopeRepoLabel, hint: messages.scopeRepoHint(options.cwd) },
-      { value: 'homedir', label: messages.scopeHomedirLabel, hint: messages.scopeHomedirHint },
-    ],
+    options: [{ value: 'repo', label: messages.scopeRepoLabel(dir('repo')) }, home],
     initialValue: 'repo',
   });
 }
@@ -124,6 +124,13 @@ export function readMarketplace(root) {
   }
 }
 
+// The list comes from the pinned catalog and is never hardcoded, so an older SDK yields none.
+export function projectOnlyCategories(catalog) {
+  return catalog.categories
+    .filter((cat) => cat.scope.includes('repo') && !cat.scope.includes('homedir') && cat.group !== HIDDEN_GROUP)
+    .map(({ id, label }) => ({ id, label }));
+}
+
 /**
  * Flat, ordered option list for the category picker. Categories come grouped by the first
  * appearance of their group, then in catalog order; the plugin marketplace group comes last.
@@ -133,9 +140,10 @@ export function buildOptions(catalog, scope, marketplace) {
   for (const cat of catalog.categories) {
     if (!cat.scope.includes(scope) || cat.group === HIDDEN_GROUP) continue;
     if (!byGroup.has(cat.group)) byGroup.set(cat.group, []);
+    const label = withBadge(cat.label, cat.experimental);
     byGroup.get(cat.group).push({
       value: cat.id,
-      label: withBadge(cat.label, cat.experimental),
+      label: scope === 'repo' && !cat.scope.includes('homedir') ? `${label} (${messages.projectOnlyBadge})` : label,
       hint: shorten(cat.desc),
       group: cat.group,
       selected: Boolean(cat.default),
@@ -157,13 +165,17 @@ export function buildOptions(catalog, scope, marketplace) {
 }
 
 /** Return the selected option values (category ids and plugin:<name> ids). */
-export async function chooseCategories({ options, prompt, requested, scope, agent }) {
+export async function chooseCategories({ options, prompt, requested, scope, agent, projectOnly = [], scopeFlag = null }) {
   if (options.length === 0) throw new CliError(EXIT.OK, messages.categoriesNone(scope, agent));
 
   const valid = options.map((option) => option.value);
   if (requested) {
-    const unknown = requested.filter((id) => !valid.includes(id));
+    const refused = scope === 'homedir'
+      ? requested.map((id) => projectOnly.find((entry) => entry.id === id)).filter(Boolean)
+      : [];
+    const unknown = requested.filter((id) => !valid.includes(id) && !refused.some((entry) => entry.id === id));
     if (unknown.length) throw new CliError(EXIT.PREFLIGHT, messages.categoriesUnknown(unknown, scope, agent, valid));
+    if (refused.length) throw new CliError(EXIT.PREFLIGHT, messages.projectOnlyRefused(refused, scopeFlag));
     return requested;
   }
 

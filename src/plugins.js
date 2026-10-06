@@ -23,7 +23,8 @@ const GITHUB_REPO_URL = new RegExp(`github\\.com[/:]${messages.MARKETPLACE_REPO}
 
 export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 
-const pluginScopeFor = (scope) => (scope === 'homedir' ? 'user' : 'project');
+// Plugins install once per developer, so a repo run never adds a project copy (container finding 4).
+const PLUGIN_SCOPE = 'user';
 
 /**
  * The marketplace source this run registers: the local checkout for a file:// SDK URL, whose
@@ -51,10 +52,10 @@ export function sourceMatches(declared, wanted) {
 
 /**
  * Re-register the marketplace when the declaration is legacy or its source is not the wanted
- * one. Returns null to keep the registration, else {reason, carried, leftoverDirs}: the plugins
- * to reinstall at their scopes and the legacy copies to delete once everything succeeded.
+ * one. Returns null to keep the registration, else {reason, carried, leftoverDirs}: the plugin
+ * entries to strip at their scopes and the legacy copies to delete once everything succeeded.
  */
-export function planMigration({ registration, installed, wanted, selected, scope }) {
+export function planMigration({ registration, installed, wanted, selected }) {
   const { declared, legacy } = registration;
   if (!legacy && (!declared || sourceMatches(declared, wanted))) return null;
 
@@ -64,9 +65,10 @@ export function planMigration({ registration, installed, wanted, selected, scope
       carried.push({ name, scope: pluginScope });
     }
   }
-  // A carried plugin keeps its scope: picking it on a repo run does not add a project install.
+  // The strip matches entries by scope, so carried entries keep theirs; every carried plugin is
+  // reinstalled at user scope.
   for (const name of selected) {
-    if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: pluginScopeFor(scope) });
+    if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: PLUGIN_SCOPE });
   }
   return { reason: legacy ? 'legacy' : 'switch', carried, leftoverDirs: legacy?.leftoverDirs ?? [] };
 }
@@ -93,18 +95,20 @@ export function aheadPlugins({ installed, pinned }) {
 }
 
 /**
- * Ordered claude CLI steps: with a migration, add the wanted marketplace and reinstall the
- * carried plugins; otherwise install the selected plugins missing at the run scope and update
- * the installed ones that are behind the pinned release.
+ * Ordered claude CLI steps: with a migration, add the wanted marketplace and reinstall each
+ * carried plugin once at user scope; otherwise install the selected plugins missing at user
+ * scope and update the installed ones that are behind the pinned release at their own scope.
  */
-export function planPluginCommands({ selected, scope, wanted, migration, installed, pinned }) {
+export function planPluginCommands({ selected, wanted, migration, installed, pinned }) {
   const add = { kind: 'marketplaceAdd', args: ['plugin', 'marketplace', 'add', ...wanted.addArgs] };
-  if (migration) return [add, ...migration.carried.map(installStep)];
+  if (migration) {
+    const names = [...new Set(migration.carried.map(({ name }) => name))];
+    return [add, ...names.map((name) => installStep({ name, scope: PLUGIN_SCOPE }))];
+  }
 
-  const runScope = pluginScopeFor(scope);
   const installs = selected
-    .filter((name) => !installed.some((entry) => entry.name === name && entry.scope === runScope))
-    .map((name) => installStep({ name, scope: runScope }));
+    .filter((name) => !installed.some((entry) => entry.name === name && entry.scope === PLUGIN_SCOPE))
+    .map((name) => installStep({ name, scope: PLUGIN_SCOPE }));
   const behind = installed.filter(({ name, version }) => compareVersions(version, pinned[name]) === -1);
   // Without a marketplace update, `plugin update` compares against the stale marketplace clone.
   const updates = behind.length
@@ -112,6 +116,16 @@ export function planPluginCommands({ selected, scope, wanted, migration, install
     : [];
   if (installs.length === 0 && updates.length === 0) return [];
   return [add, ...installs, ...updates];
+}
+
+/**
+ * Plugin names the summary lists: the selected and carried ones, minus those whose install did
+ * not succeed. After a rollback the restore undid every install, so none.
+ */
+export function installedPluginNames({ selected, migration, results, outcome }) {
+  if (outcome.rolledBack) return [];
+  const names = [...new Set([...selected, ...(migration?.carried ?? []).map(({ name }) => name)])];
+  return names.filter((name) => !results.some(({ step, status }) => step.kind === 'install' && step.plugin === name && status !== 'ok'));
 }
 
 async function supportsPluginOptions({ exec, target }) {
@@ -162,7 +176,7 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
   }
 
   for (const dir of migration.leftoverDirs) fs.rmSync(dir, { recursive: true, force: true });
-  if (migration.reason === 'legacy') outcome.migrated = migration.carried.length;
+  if (migration.reason === 'legacy') outcome.migrated = plan.filter((step) => step.kind === 'install').length;
   if (wanted.kind === 'directory') outcome.localSource = wanted.path;
   return { results, outcome };
 }

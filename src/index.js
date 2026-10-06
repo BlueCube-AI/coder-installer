@@ -9,14 +9,14 @@ import { run, which } from './exec.js';
 import * as messages from './messages.js';
 import {
   PLUGIN_PREFIX, buildOptions, chooseCategories, chooseHarness, chooseScope,
-  confirmRepoTarget, createNonInteractivePrompt, createPrompt, readMarketplace,
+  confirmRepoTarget, createNonInteractivePrompt, createPrompt, projectOnlyCategories, readMarketplace,
 } from './picker.js';
 import {
-  aheadPlugins, planMigration, planPluginCommands, runPluginCommands, wantedSource,
+  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, wantedSource,
 } from './plugins.js';
 import { ensureGitAccess, ensureUv } from './preflight.js';
 import { claudeConfigDir, installedPlugins, readRegistration, registryPaths } from './registry.js';
-import { nextSteps, printSummary } from './report.js';
+import { installedBlocks, nextSteps, printSummary } from './report.js';
 import { resolveSource } from './source.js';
 
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -52,8 +52,8 @@ function planPlugins({ deps, options, scope, target, selected, marketplace }) {
   const installed = installedPlugins(registry);
   const wanted = wantedSource(options.sdkUrl);
   const pinned = Object.fromEntries((marketplace?.plugins ?? []).map((plugin) => [plugin.name, plugin.version]));
-  const migration = planMigration({ registration, installed, wanted, selected, scope });
-  const plan = planPluginCommands({ selected, scope, wanted, migration, installed, pinned });
+  const migration = planMigration({ registration, installed, wanted, selected });
+  const plan = planPluginCommands({ selected, wanted, migration, installed, pinned });
   return { plan, migration, paths, wanted, installed, pinned };
 }
 
@@ -84,8 +84,9 @@ async function install(options, deps) {
   const catalog = agent.name === firstCatalog.agent
     ? firstCatalog
     : await readCatalog({ exec, root: source.root, agent: agent.name, ref: options.ref });
+  const projectOnly = projectOnlyCategories(catalog);
 
-  const scope = await chooseScope({ options, prompt });
+  const scope = await chooseScope({ options, prompt, agent, projectOnly });
   const target = options.target ?? defaultTarget(scope, options);
   if (scope === 'repo') await confirmRepoTarget({ exec, target, prompt, yes: options.yes, log });
 
@@ -93,6 +94,7 @@ async function install(options, deps) {
   const choices = buildOptions(catalog, scope, marketplace);
   const selected = await chooseCategories({
     options: choices, prompt, requested: options.categories, scope, agent: agent.name,
+    projectOnly, scopeFlag: options.scopeFlag,
   });
   const categories = selected.filter((id) => !id.startsWith(PLUGIN_PREFIX));
   const plugins = selected.filter((id) => id.startsWith(PLUGIN_PREFIX)).map((id) => id.slice(PLUGIN_PREFIX.length));
@@ -122,7 +124,15 @@ async function install(options, deps) {
 
   // Without claude the installed versions are not acted on, so they are not reported either.
   if (!pluginPlan.migration && claudePresent) outcome.ahead = aheadPlugins(pluginPlan);
-  printSummary(nextSteps({ agent, scope, categories, pluginResults, outcome }), log);
+  const categoryLabels = categories.map((id) => catalog.categories.find((cat) => cat.id === id).label);
+  const pluginNames = agent.name === 'claude-code'
+    ? installedPluginNames({ selected: plugins, migration: pluginPlan.migration, results: pluginResults, outcome })
+    : [];
+  printSummary(
+    installedBlocks({ scope, agent, target, targetGiven: options.targetGiven, categoryLabels, pluginNames }),
+    nextSteps({ agent, scope, categories, pluginResults, outcome, projectOnly }),
+    log,
+  );
   return outcome.rolledBack ? EXIT.DEPLOY_FAILED : EXIT.OK;
 }
 

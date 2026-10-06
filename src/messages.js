@@ -2,6 +2,7 @@
 // reviewed in one place and tests can assert on the exact text.
 
 export const MARKETPLACE_REPO = 'BlueCube-AI/bluecube-coder';
+export const NPX_COMMAND = 'npx @bluecube-ai/coder';
 
 export const usage = (name) => `Usage: ${name} [options]
 
@@ -101,10 +102,10 @@ export const harnessAuto = (displayName) => `Agent: ${displayName}`;
 export const experimentalBadge = 'experimental';
 
 export const scopePrompt = 'Where should it be installed?';
-export const scopeRepoLabel = 'This project';
-export const scopeRepoHint = (cwd) => `current directory: ${cwd}`;
-export const scopeHomedirLabel = 'Home directory';
-export const scopeHomedirHint = 'available in every project';
+export const scopeRepoLabel = (dir) => `Only this project (${dir})`;
+export const scopeHomedirLabel = (dir) => `Every project on this machine (${dir})`;
+export const projectOnlyNotAvailable = (labels) =>
+  `Not available here: ${labels.join(', ')}. Run ${NPX_COMMAND} inside a project to add them.`;
 
 export const targetNotGit = (target) => `${target} is not a git work tree.`;
 export const targetNotGitConfirm = 'Install there anyway?';
@@ -115,6 +116,20 @@ export const categoriesNone = (scope, agent) => `no ${scope} categories for ${ag
 export const categoriesUnknown = (ids, scope, agent, valid) =>
   `Unknown category id(s) for ${agent} in ${scope} scope: ${ids.join(', ')}\nValid ids: ${valid.join(', ')}`;
 export const pluginsGroup = 'Claude Code plugins';
+export const projectOnlyBadge = 'this project only';
+
+const joinNames = (names) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+export const projectOnlyRefused = (entries, scopeFlag) => {
+  const names = joinNames(entries.map(({ id, label }) => `${label} (${id})`));
+  const reach = scopeFlag ? `with ${scopeFlag}` : 'for every project';
+  const verb = entries.length === 1 ? 'It only works' : 'They only work';
+  return `${names} can't be installed ${reach}. ${verb} inside one project.
+Run this inside the project instead:
+
+  ${NPX_COMMAND} --categories ${entries.map(({ id }) => id).join(',')}
+
+Nothing was installed.`;
+};
 
 export const cancelled = 'Cancelled.';
 export const promptInNonInteractive = (question) => `A question was needed in non-interactive mode: ${question}`;
@@ -141,6 +156,8 @@ export const pluginsUpdated = (names) => `Updated to the pinned release: ${names
 export const pluginsAhead = (entries) => `Ahead of the pinned release, left as is: ${entries
   .map(({ name, version, pinned }) => `${name} ${version} (pinned ${pinned})`).join(', ')}`;
 
+export const installedHere = (dir) => `Installed for this project (${dir}):`;
+export const installedEverywhere = (dir) => `Installed for every project (${dir}):`;
 export const nextStepsHeading = 'Next steps';
 export const nextStepSession = (displayName) => `Start a new ${displayName} session to load the new commands`;
 export const nextStepHooks = (settingsPath) => `Review the hooks under ${settingsPath} before you trust them`;
