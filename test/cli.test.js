@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import { CliError, EXIT, parseCli } from '../src/cli.js';
 import { main } from '../src/index.js';
-import { collectLog, fakeExec, fakePrompt, fakeWhich } from './helpers.js';
+import {
+  collectLog, fakeExec, fakePrompt, fakeWhich, legacyDeclaration, registryFixture, writeJson,
+} from './helpers.js';
 
 const PKG = { version: '9.9.9', bluecube: { sdkRepo: 'https://example.test/sdk.git', sdkRef: 'v0.6.1' } };
 const CTX = { env: {}, cwd: '/work/project', homedir: '/home/dev' };
@@ -126,22 +129,62 @@ describe('exit mapping', () => {
     assert.equal(await main(['--agent', 'claude-code', '-g', '--categories', 'git', '--yes'], d), EXIT.OK);
     assert.ok(d.log.lines.includes('Next steps'));
   });
+
+  it('should map a rolled-back plugin migration to 1 after printing the report', async () => {
+    const { settings, sdlcDir, configDir } = legacyHome();
+    const before = fs.readFileSync(settings);
+    const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+    d.exec = catalogExec({ claude: (args) => (args[1] === 'install' ? { code: 1 } : {}) });
+
+    assert.equal(await main(['--agent', 'claude-code', '-g', '--categories', 'git', '--yes'], d), EXIT.DEPLOY_FAILED);
+
+    const rollback = '  - Plugin migration rolled back, plugins unchanged: claude plugin install bluecube-sdlc@bluecube-coder --scope user exited with code 1';
+    assert.ok(d.log.lines.indexOf(rollback) > d.log.lines.indexOf('Next steps'));
+    assert.deepEqual(fs.readFileSync(settings), before);
+    assert.ok(fs.existsSync(sdlcDir));
+  });
+
+  it('should leave the plugin registry alone on a pi run', async () => {
+    const { settings, configDir } = legacyHome();
+    const before = fs.readFileSync(settings);
+    const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+    d.exec = catalogExec();
+
+    assert.equal(await main(['--agent', 'pi', '-g', '--categories', 'git', '--yes'], d), EXIT.OK);
+
+    assert.ok(!d.exec.calls.some((c) => c.cmd === 'claude'));
+    assert.ok(!d.log.lines.some((line) => /plugin/i.test(line)));
+    assert.deepEqual(fs.readFileSync(settings), before);
+  });
 });
+
+// A home config directory with bluecube-sdlc enabled at user scope through deploy.py's legacy registration.
+function legacyHome() {
+  const { configDir } = registryFixture();
+  const sdlcDir = path.join(configDir, 'plugins', 'bluecube-sdlc');
+  fs.mkdirSync(sdlcDir, { recursive: true });
+  const settings = path.join(configDir, 'settings.json');
+  writeJson(settings, {
+    extraKnownMarketplaces: { 'bluecube-coder': legacyDeclaration([['bluecube-sdlc', sdlcDir]]) },
+    enabledPlugins: { 'bluecube-sdlc@bluecube-coder': true },
+  });
+  return { configDir, settings, sdlcDir };
+}
 
 async function fail() {
   throw new Error('prompted');
 }
 
 async function tmpCache() {
-  const fs = await import('node:fs');
   const os = await import('node:os');
   return fs.mkdtempSync(path.join(os.tmpdir(), 'bc-cli-'));
 }
 
-// Fake exec that simulates git (creating the slot on clone) and uv for catalog and deploy.
-function catalogExec({ deployCode = 0 } = {}) {
+// Fake exec that simulates git (creating the slot on clone), uv for catalog and deploy, and a
+// current claude CLI whose plugin commands answer with `claude`.
+function catalogExec({ deployCode = 0, claude = () => ({}) } = {}) {
   return fakeExec(async (cmd, args) => {
-    const fs = await import('node:fs');
+    if (cmd === 'claude') return args.includes('--help') ? { stdout: '--scope --sparse' } : claude(args);
     if (cmd === 'git' && args[0] === 'clone') {
       fs.mkdirSync(path.join(args[2], '.git'), { recursive: true });
     }

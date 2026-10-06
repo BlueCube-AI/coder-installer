@@ -113,7 +113,11 @@ export function readMarketplace(root) {
     const data = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
     return {
       name: data.name,
-      plugins: (data.plugins || []).map((plugin) => ({ name: plugin.name, description: plugin.description || '' })),
+      plugins: (data.plugins || []).map((plugin) => ({
+        name: plugin.name,
+        description: plugin.description || '',
+        version: plugin.version || null,
+      })),
     };
   } catch {
     return null;

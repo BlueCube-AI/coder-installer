@@ -11,8 +11,11 @@ import {
   PLUGIN_PREFIX, buildOptions, chooseCategories, chooseHarness, chooseScope,
   confirmRepoTarget, createNonInteractivePrompt, createPrompt, readMarketplace,
 } from './picker.js';
-import { planPluginCommands, runPluginCommands } from './plugins.js';
+import {
+  aheadPlugins, planMigration, planPluginCommands, runPluginCommands, wantedSource,
+} from './plugins.js';
 import { ensureGitAccess, ensureUv } from './preflight.js';
+import { claudeConfigDir, installedPlugins, readRegistration, registryPaths } from './registry.js';
 import { nextSteps, printSummary } from './report.js';
 import { resolveSource } from './source.js';
 
@@ -35,6 +38,23 @@ export function defaultDeps() {
     logError: (line) => process.stderr.write(`${line}\n`),
     pkg: PKG,
   };
+}
+
+const NO_PLUGINS = { plan: [], migration: null, paths: null, wanted: null, installed: [], pinned: {} };
+
+// Read the Claude Code plugin registry and plan the plugin steps. Only claude-code runs get
+// here: Pi and OpenCode never read or write the registry.
+function planPlugins({ deps, options, scope, target, selected, marketplace }) {
+  const configDir = claudeConfigDir({ env: deps.env, homedir: deps.homedir });
+  const registry = { configDir, target, scope };
+  const paths = registryPaths(registry);
+  const registration = readRegistration(registry);
+  const installed = installedPlugins(registry);
+  const wanted = wantedSource(options.sdkUrl);
+  const pinned = Object.fromEntries((marketplace?.plugins ?? []).map((plugin) => [plugin.name, plugin.version]));
+  const migration = planMigration({ registration, installed, wanted, selected, scope });
+  const plan = planPluginCommands({ selected, scope, wanted, migration, installed, pinned });
+  return { plan, migration, paths, wanted, installed, pinned };
 }
 
 async function install(options, deps) {
@@ -83,14 +103,27 @@ async function install(options, deps) {
     if (code !== 0) throw new CliError(EXIT.DEPLOY_FAILED, messages.deployFailed(code));
   }
 
-  const plan = planPluginCommands({ selected: plugins, scope });
-  const pluginResults = await runPluginCommands({
-    exec, plan, dryRun: options.dryRun, target, claudePresent: Boolean(whichFn('claude')), log,
+  const pluginPlan = agent.name === 'claude-code'
+    ? planPlugins({ deps, options, scope, target, selected: plugins, marketplace })
+    : NO_PLUGINS;
+  const claudePresent = Boolean(whichFn('claude'));
+  const { results: pluginResults, outcome } = await runPluginCommands({
+    exec,
+    plan: pluginPlan.plan,
+    migration: pluginPlan.migration,
+    paths: pluginPlan.paths,
+    wanted: pluginPlan.wanted,
+    dryRun: options.dryRun,
+    target,
+    claudePresent,
+    log,
   });
   if (options.dryRun) return EXIT.OK;
 
-  printSummary(nextSteps({ agent, scope, categories, pluginResults }), log);
-  return EXIT.OK;
+  // Without claude the installed versions are not acted on, so they are not reported either.
+  if (!pluginPlan.migration && claudePresent) outcome.ahead = aheadPlugins(pluginPlan);
+  printSummary(nextSteps({ agent, scope, categories, pluginResults, outcome }), log);
+  return outcome.rolledBack ? EXIT.DEPLOY_FAILED : EXIT.OK;
 }
 
 export async function main(argv, deps = defaultDeps()) {

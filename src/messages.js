@@ -21,8 +21,8 @@ Options:
 
 With --agent, --scope (or -g), --categories and --yes no question is asked.
 
-Exit codes: 0 success, 1 deploy failed, 2 preflight failed,
-            3 unsupported harness, 130 cancelled.
+Exit codes: 0 success, 1 deploy failed or plugin migration rolled back,
+            2 preflight failed, 3 unsupported harness, 130 cancelled.
 
 Environment:
   BLUECUBE_SDK_URL    Git URL of the SDK (default: the BlueCube repository)
@@ -126,6 +126,20 @@ export const pluginSkippedNoClaude = 'The claude CLI is not on PATH, so the plug
 export const pluginClaudeTooOld =
   'This Claude Code version is too old to install plugins from the command line (its plugin commands lack --sparse or --scope), so the plugins were not installed.';
 export const unexpectedError = (message) => `Unexpected error: ${message}`;
+
+const pluginList = (carried) => carried.map(({ name, scope }) => `${name} (${scope})`).join(', ') || 'no enabled plugins';
+export const migrationDetected = (reason, carried) => (reason === 'legacy'
+  ? `Legacy plugin registration found: ${pluginList(carried)}; it will be replaced by the GitHub marketplace`
+  : `Plugin marketplace source will change: ${pluginList(carried)} will be reinstalled`);
+export const migrated = (count) =>
+  `Migrated ${count} ${count === 1 ? 'plugin' : 'plugins'} from a local checkout to the GitHub marketplace`;
+export const migrationRolledBack = (command, code) =>
+  `Plugin migration rolled back, plugins unchanged: ${command} exited with code ${code}`;
+export const pluginsLocalSource = (checkout) =>
+  `Plugins load from the local checkout at ${checkout}; this machine is off the pinned release`;
+export const pluginsUpdated = (names) => `Updated to the pinned release: ${names.join(', ')}`;
+export const pluginsAhead = (entries) => `Ahead of the pinned release, left as is: ${entries
+  .map(({ name, version, pinned }) => `${name} ${version} (pinned ${pinned})`).join(', ')}`;
 
 export const nextStepsHeading = 'Next steps';
 export const nextStepSession = (displayName) => `Start a new ${displayName} session to load the new commands`;

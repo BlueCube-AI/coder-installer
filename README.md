@@ -54,12 +54,22 @@ Older Claude Code releases lack `--sparse` or `--scope`. The installer checks fi
 they are missing, installs everything else and asks you to run `claude update` and then the
 plugin commands it prints.
 
+A machine where the SDK's `deploy.py` registered the plugins from local copies carries a legacy
+`bluecube-coder` marketplace that blocks the GitHub one, so the installer replaces that
+registration with the GitHub marketplace without asking. Every plugin is reinstalled at the scope
+it had (user or this project), and the leftover local copies are deleted. If any `claude` command
+of that move fails, the plugin registry files are restored as they were, the report names the
+failing command and the installer exits 1.
+
+Rerunning the installer updates the plugins that are behind the pinned release and names them,
+and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout instead of GitHub.
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success (also when no category exists for the chosen agent and scope) |
-| 1 | The deploy failed |
+| 1 | The deploy failed, or the plugin migration was rolled back |
 | 2 | Preflight failed: uv, git access, unknown ref, unknown category id or bad flag |
 | 3 | The chosen agent is not supported by the pinned SDK |
 | 130 | Cancelled |
@@ -89,25 +99,33 @@ changes first. The SDK repository also runs this test in its own CI against ever
 
 ## Release
 
-The installer and the SDK share one version number: installer `X.Y.Z` installs SDK `vX.Y.Z`,
-and `bluecube.sdkRef` is always that tag. Every release bumps both, even when only one of them
-changed, and a breaking change in either moves both to the next major version.
+The installer has its own version. `bluecube.sdkRef` in `package.json` pins the SDK tag it
+installs, so the installer can release without an SDK release, and an SDK release reaches users
+only when the installer moves its pin. The SDK's `installer-compat` workflow runs this installer's
+integration test against every SDK change, which keeps the two compatible.
+
+- A change to the installer alone bumps `version` and keeps `bluecube.sdkRef`.
+- Moving `bluecube.sdkRef` to a newer SDK tag is an installer release too: a patch, or a minor
+  when the new SDK adds categories or plugins.
+- A breaking change to the installer's flags or exit codes moves it to the next major version.
 
 Releases are published from GitHub Actions with npm trusted publishing: no stored token, and
 npm adds a provenance statement that links the package to the exact commit and workflow run.
 Pushing a `v*` tag starts the publish; if the `npm` environment has a required reviewer, the
 publish waits for that approval.
 
-1. Release the SDK first: its `vX.Y.Z` tag must exist before the installer points at it.
+1. When the release moves the pin, release the SDK first: its tag must exist before the
+   installer points at it.
 2. Open a pull request that sets `version` with `npm version X.Y.Z --no-git-tag-version` (which
-   also updates `package-lock.json`) and `bluecube.sdkRef` to `vX.Y.Z`. Merge it.
+   also updates `package-lock.json`) and, when the pin moves, `bluecube.sdkRef` to the new SDK
+   tag. Merge it.
 3. `git switch main && git pull && git tag vX.Y.Z && git push origin vX.Y.Z`. CI refuses a tag
    that does not match `package.json`.
 4. If the `npm` environment has a required reviewer, open the run for the tag in Actions,
    choose Review deployments and approve `npm`.
 5. Check `npm view @bluecube-ai/coder version`, and that
    `npx @bluecube-ai/coder@latest --dry-run --agent claude-code --scope repo --categories git --yes`
-   prints `SDK vX.Y.Z at <sha>`.
+   prints `SDK <bluecube.sdkRef> at <sha>`.
 
 Version 0.1.0 was published by hand, because npm only offers trusted publishing for a package
 that already exists. It follows the SDK's `main` branch instead of a tag.
