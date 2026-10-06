@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { buildDeployArgs, runDeploy } from '../src/deploy.js';
-import { planPluginCommands } from '../src/plugins.js';
+import { planPluginCommands, wantedSource } from '../src/plugins.js';
 import { nextSteps, printSummary } from '../src/report.js';
 import { collectLog, fakeExec } from './helpers.js';
 
 const CLAUDE = { name: 'claude-code', displayName: 'Claude Code', configDir: '.claude', homedirPath: '~/.claude' };
+const freshPlan = (selected, scope) => planPluginCommands({
+  selected, scope, wanted: wantedSource('https://github.com/BlueCube-AI/bluecube-coder.git'), migration: null, installed: [], pinned: {},
+});
 
 describe('buildDeployArgs', () => {
   it('should build the repo deploy argv with the target', () => {
@@ -46,7 +49,7 @@ describe('runDeploy', () => {
 
 describe('nextSteps', () => {
   it('should list the session, hooks and pending plugin lines', () => {
-    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo' });
+    const plan = freshPlan(['bluecube-sdlc'], 'repo');
     const lines = nextSteps({
       agent: CLAUDE,
       scope: 'repo',
@@ -69,7 +72,7 @@ describe('nextSteps', () => {
   });
 
   it('should ask for a Claude Code update before the outdated plugin commands', () => {
-    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo' });
+    const plan = freshPlan(['bluecube-sdlc'], 'repo');
     const lines = nextSteps({
       agent: CLAUDE,
       scope: 'repo',
@@ -81,6 +84,51 @@ describe('nextSteps', () => {
       'Run by hand: claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins',
       'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
     ]);
+  });
+
+  it('should list the plugin outcomes after the session line in the documented order', () => {
+    const outcome = {
+      migrated: 2,
+      rolledBack: { command: 'claude plugin install bluecube-sdlc@bluecube-coder --scope user', code: 1 },
+      localSource: '/src/bluecube-coder',
+      updated: ['bluecube-sdlc', 'kb-knowledge-graph'],
+      ahead: [{ name: 'bluecube-sdlc', scope: 'user', version: '1.2.0', pinned: '1.1.1' }],
+    };
+    const lines = nextSteps({ agent: CLAUDE, scope: 'repo', categories: ['damage_control'], pluginResults: [], outcome });
+    assert.deepEqual(lines, [
+      'Start a new Claude Code session to load the new commands',
+      'Migrated 2 plugins from a local checkout to the GitHub marketplace',
+      'Plugin migration rolled back, plugins unchanged: claude plugin install bluecube-sdlc@bluecube-coder --scope user exited with code 1',
+      'Plugins load from the local checkout at /src/bluecube-coder; this machine is off the pinned release',
+      'Updated to the pinned release: bluecube-sdlc, kb-knowledge-graph',
+      'Ahead of the pinned release, left as is: bluecube-sdlc 1.2.0 (pinned 1.1.1)',
+      'Review the hooks under .claude/settings.json before you trust them',
+    ]);
+  });
+
+  it('should add no outcome line for an empty outcome', () => {
+    const empty = { migrated: null, rolledBack: null, localSource: null, updated: [], ahead: [] };
+    assert.deepEqual(nextSteps({ agent: CLAUDE, scope: 'repo', categories: ['git'], pluginResults: [], outcome: empty }), [
+      'Start a new Claude Code session to load the new commands',
+    ]);
+  });
+
+  it('should name a single migrated plugin in the singular', () => {
+    const lines = nextSteps({ agent: CLAUDE, scope: 'repo', categories: [], pluginResults: [], outcome: { migrated: 1 } });
+    assert.equal(lines[1], 'Migrated 1 plugin from a local checkout to the GitHub marketplace');
+  });
+
+  it('should print no by-hand line after a rolled-back migration', () => {
+    const plan = freshPlan(['bluecube-sdlc', 'kb-knowledge-graph'], 'homedir');
+    const command = 'claude plugin install bluecube-sdlc@bluecube-coder --scope user';
+    const lines = nextSteps({
+      agent: CLAUDE,
+      scope: 'homedir',
+      categories: [],
+      pluginResults: [{ step: plan[0], status: 'ok' }, { step: plan[1], status: 'failed', code: 1 }, { step: plan[2], status: 'rolled-back' }],
+      outcome: { rolledBack: { command, code: 1 } },
+    });
+    assert.ok(!lines.some((line) => line.startsWith('Run by hand')));
   });
 
   it('should render under a Next steps heading', () => {

@@ -1,6 +1,13 @@
-import * as messages from './messages.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export const MARKETPLACE_NAME = 'bluecube-coder';
+import * as messages from './messages.js';
+import {
+  MARKETPLACE_NAME, compareVersions, restoreRegistry, snapshotRegistry, stripRegistration,
+} from './registry.js';
+
+export { MARKETPLACE_NAME };
 const LIST_TIMEOUT_MS = 60000;
 const HELP_TIMEOUT_MS = 30000;
 
@@ -11,23 +18,100 @@ const REQUIRED_OPTIONS = [
   { args: ['plugin', 'install', '--help'], option: '--scope' },
 ];
 
+// `marketplace add BlueCube-AI/bluecube-coder` may be recorded as a git source with the full URL.
+const GITHUB_REPO_URL = new RegExp(`github\\.com[/:]${messages.MARKETPLACE_REPO}(\\.git)?$`, 'i');
+
 export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 
-/** Ordered claude CLI steps that install the selected marketplace plugins. */
-export function planPluginCommands({ selected, scope }) {
-  if (selected.length === 0) return [];
-  const pluginScope = scope === 'homedir' ? 'user' : 'project';
-  return [
-    {
-      kind: 'marketplaceAdd',
-      args: ['plugin', 'marketplace', 'add', messages.MARKETPLACE_REPO, '--sparse', '.claude-plugin', 'plugins'],
-    },
-    ...selected.map((name) => ({
-      kind: 'install',
-      plugin: name,
-      args: ['plugin', 'install', `${name}@${MARKETPLACE_NAME}`, '--scope', pluginScope],
-    })),
-  ];
+const pluginScopeFor = (scope) => (scope === 'homedir' ? 'user' : 'project');
+
+/**
+ * The marketplace source this run registers: the local checkout for a file:// SDK URL, whose
+ * plugins then load in place, else the GitHub repository.
+ */
+export function wantedSource(sdkUrl) {
+  if (sdkUrl.startsWith('file://')) {
+    const checkout = fileURLToPath(sdkUrl);
+    return { kind: 'directory', path: checkout, addArgs: [checkout] };
+  }
+  return { kind: 'github', addArgs: [messages.MARKETPLACE_REPO, '--sparse', '.claude-plugin', 'plugins'] };
+}
+
+export function sourceMatches(declared, wanted) {
+  if (!declared) return false;
+  if (wanted.kind === 'directory') {
+    return declared.source === 'directory' && typeof declared.path === 'string'
+      && path.resolve(declared.path) === path.resolve(wanted.path);
+  }
+  if (declared.source === 'github') {
+    return typeof declared.repo === 'string' && declared.repo.toLowerCase() === messages.MARKETPLACE_REPO.toLowerCase();
+  }
+  return declared.source === 'git' && typeof declared.url === 'string' && GITHUB_REPO_URL.test(declared.url);
+}
+
+/**
+ * Re-register the marketplace when the declaration is legacy or its source is not the wanted
+ * one. Returns null to keep the registration, else {reason, carried, leftoverDirs}: the plugins
+ * to reinstall at their scopes and the legacy copies to delete once everything succeeded.
+ */
+export function planMigration({ registration, installed, wanted, selected, scope }) {
+  const { declared, legacy } = registration;
+  if (!legacy && (!declared || sourceMatches(declared, wanted))) return null;
+
+  const carried = [];
+  for (const { name, scope: pluginScope } of legacy ? legacy.plugins : installed) {
+    if (!carried.some((entry) => entry.name === name && entry.scope === pluginScope)) {
+      carried.push({ name, scope: pluginScope });
+    }
+  }
+  // A carried plugin keeps its scope: picking it on a repo run does not add a project install.
+  for (const name of selected) {
+    if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: pluginScopeFor(scope) });
+  }
+  return { reason: legacy ? 'legacy' : 'switch', carried, leftoverDirs: legacy?.leftoverDirs ?? [] };
+}
+
+const installStep = ({ name, scope }) => ({
+  kind: 'install',
+  plugin: name,
+  scope,
+  args: ['plugin', 'install', `${name}@${MARKETPLACE_NAME}`, '--scope', scope],
+});
+
+const updateStep = ({ name, scope }) => ({
+  kind: 'update',
+  plugin: name,
+  scope,
+  args: ['plugin', 'update', `${name}@${MARKETPLACE_NAME}`, '--scope', scope],
+});
+
+/** Installed plugins newer than the pinned release, with the pinned version for the report. */
+export function aheadPlugins({ installed, pinned }) {
+  return installed
+    .filter(({ name, version }) => compareVersions(version, pinned[name]) === 1)
+    .map((entry) => ({ ...entry, pinned: pinned[entry.name] }));
+}
+
+/**
+ * Ordered claude CLI steps: with a migration, add the wanted marketplace and reinstall the
+ * carried plugins; otherwise install the selected plugins missing at the run scope and update
+ * the installed ones that are behind the pinned release.
+ */
+export function planPluginCommands({ selected, scope, wanted, migration, installed, pinned }) {
+  const add = { kind: 'marketplaceAdd', args: ['plugin', 'marketplace', 'add', ...wanted.addArgs] };
+  if (migration) return [add, ...migration.carried.map(installStep)];
+
+  const runScope = pluginScopeFor(scope);
+  const installs = selected
+    .filter((name) => !installed.some((entry) => entry.name === name && entry.scope === runScope))
+    .map((name) => installStep({ name, scope: runScope }));
+  const behind = installed.filter(({ name, version }) => compareVersions(version, pinned[name]) === -1);
+  // Without a marketplace update, `plugin update` compares against the stale marketplace clone.
+  const updates = behind.length
+    ? [{ kind: 'marketplaceUpdate', args: ['plugin', 'marketplace', 'update', MARKETPLACE_NAME] }, ...behind.map(updateStep)]
+    : [];
+  if (installs.length === 0 && updates.length === 0) return [];
+  return [add, ...installs, ...updates];
 }
 
 async function supportsPluginOptions({ exec, target }) {
@@ -48,25 +132,64 @@ function listsMarketplace(stdout) {
   }
 }
 
+const runStep = (exec, step, target) => exec('claude', step.args, { cwd: target, stdio: 'inherit' });
+
+// All or nothing: on the first failing command the four registry files go back to the
+// snapshot, so the plugins keep working from the old registration.
+async function runMigration({ exec, plan, migration, paths, wanted, target, log, outcome }) {
+  const snapshot = snapshotRegistry(paths);
+  try {
+    stripRegistration({ paths, carried: migration.carried, target });
+  } catch (err) {
+    restoreRegistry(snapshot);
+    throw err;
+  }
+
+  const results = [];
+  for (const [index, step] of plan.entries()) {
+    const result = await runStep(exec, step, target);
+    if (result.code === 0) {
+      results.push({ step, status: 'ok' });
+      continue;
+    }
+    restoreRegistry(snapshot);
+    const command = formatClaudeCommand(step.args);
+    log(messages.pluginFailed(command, result.code));
+    outcome.rolledBack = { command, code: result.code };
+    results.push({ step, status: 'failed', code: result.code });
+    for (const rest of plan.slice(index + 1)) results.push({ step: rest, status: 'rolled-back' });
+    return { results, outcome };
+  }
+
+  for (const dir of migration.leftoverDirs) fs.rmSync(dir, { recursive: true, force: true });
+  if (migration.reason === 'legacy') outcome.migrated = migration.carried.length;
+  if (wanted.kind === 'directory') outcome.localSource = wanted.path;
+  return { results, outcome };
+}
+
 /**
- * Run the plan in `target`. Failures are collected, not thrown, so the deploy result
- * still stands. Returns one {step, status, code?} per step: ok, failed, skipped, outdated
- * (the claude CLI lacks an option the plan needs) or dry-run.
+ * Run the plan in `target`. Failures are collected, not thrown, so the deploy result still
+ * stands. Returns {results, outcome}: one {step, status, code?} per step (ok, failed, skipped,
+ * outdated when the claude CLI lacks an option the plan needs, rolled-back, or dry-run), and
+ * the report outcome (migrated, rolledBack, localSource, updated; the caller fills ahead).
  */
-export async function runPluginCommands({ exec, plan, dryRun, target, claudePresent, log }) {
-  if (plan.length === 0) return [];
+export async function runPluginCommands({ exec, plan, migration, paths, wanted, dryRun, target, claudePresent, log }) {
+  const outcome = { migrated: null, rolledBack: null, localSource: null, updated: [], ahead: [] };
+  if (plan.length === 0) return { results: [], outcome };
   if (dryRun) {
+    if (migration) log(messages.migrationDetected(migration.reason, migration.carried));
     for (const step of plan) log(formatClaudeCommand(step.args));
-    return plan.map((step) => ({ step, status: 'dry-run' }));
+    return { results: plan.map((step) => ({ step, status: 'dry-run' })), outcome };
   }
   if (!claudePresent) {
     log(messages.pluginSkippedNoClaude);
-    return plan.map((step) => ({ step, status: 'skipped' }));
+    return { results: plan.map((step) => ({ step, status: 'skipped' })), outcome };
   }
   if (!(await supportsPluginOptions({ exec, target }))) {
     log(messages.pluginClaudeTooOld);
-    return plan.map((step) => ({ step, status: 'outdated' }));
+    return { results: plan.map((step) => ({ step, status: 'outdated' })), outcome };
   }
+  if (migration) return runMigration({ exec, plan, migration, paths, wanted, target, log, outcome });
 
   const listed = await exec('claude', ['plugin', 'marketplace', 'list', '--json'], { cwd: target, timeoutMs: LIST_TIMEOUT_MS });
   const steps = listed.code === 0 && listsMarketplace(listed.stdout)
@@ -74,14 +197,22 @@ export async function runPluginCommands({ exec, plan, dryRun, target, claudePres
     : plan;
 
   const results = [];
+  let updateFailed = false;
   for (const step of steps) {
-    const result = await exec('claude', step.args, { cwd: target, stdio: 'inherit' });
+    // The updates compare against the marketplace clone, so they cannot run after its update failed.
+    if (step.kind === 'update' && updateFailed) {
+      results.push({ step, status: 'failed' });
+      continue;
+    }
+    const result = await runStep(exec, step, target);
     if (result.code === 0) {
       results.push({ step, status: 'ok' });
+      if (step.kind === 'update') outcome.updated.push(step.plugin);
     } else {
       log(messages.pluginFailed(formatClaudeCommand(step.args), result.code));
       results.push({ step, status: 'failed', code: result.code });
+      if (step.kind === 'marketplaceUpdate') updateFailed = true;
     }
   }
-  return results;
+  return { results, outcome };
 }

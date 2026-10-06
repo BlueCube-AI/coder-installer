@@ -196,6 +196,11 @@ describe('readMarketplace', () => {
     assert.deepEqual(marketplace.plugins.map((p) => p.name), ['kb-knowledge-graph', 'bluecube-sdlc']);
   });
 
+  it('should return the pinned version of each plugin', () => {
+    const marketplace = readMarketplace(fileURLToPath(new URL('./fixtures/sdk-root/', import.meta.url)));
+    assert.deepEqual(marketplace.plugins.map((p) => p.version), ['0.7.2', '1.1.1']);
+  });
+
   it('should return null when the file is missing', () => {
     assert.equal(readMarketplace(os.tmpdir()), null);
   });

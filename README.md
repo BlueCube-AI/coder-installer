@@ -54,12 +54,22 @@ Older Claude Code releases lack `--sparse` or `--scope`. The installer checks fi
 they are missing, installs everything else and asks you to run `claude update` and then the
 plugin commands it prints.
 
+A machine where the SDK's `deploy.py` registered the plugins from local copies carries a legacy
+`bluecube-coder` marketplace that blocks the GitHub one, so the installer replaces that
+registration with the GitHub marketplace without asking. Every plugin is reinstalled at the scope
+it had (user or this project), and the leftover local copies are deleted. If any `claude` command
+of that move fails, the plugin registry files are restored as they were, the report names the
+failing command and the installer exits 1.
+
+Rerunning the installer updates the plugins that are behind the pinned release and names them,
+and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout instead of GitHub.
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success (also when no category exists for the chosen agent and scope) |
-| 1 | The deploy failed |
+| 1 | The deploy failed, or the plugin migration was rolled back |
 | 2 | Preflight failed: uv, git access, unknown ref, unknown category id or bad flag |
 | 3 | The chosen agent is not supported by the pinned SDK |
 | 130 | Cancelled |
