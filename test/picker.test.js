@@ -8,11 +8,17 @@ import { fileURLToPath } from 'node:url';
 import { EXIT } from '../src/cli.js';
 import {
   HIDDEN_GROUP, buildHarnessOptions, buildOptions, chooseCategories, chooseHarness, chooseScope,
-  confirmRepoTarget, readMarketplace,
+  confirmRepoTarget, projectOnlyCategories, readMarketplace,
 } from '../src/picker.js';
 import { collectLog, fakeExec, fakePrompt } from './helpers.js';
 
-const CATALOG = JSON.parse(fs.readFileSync(new URL('./fixtures/catalog-claude-code.json', import.meta.url), 'utf8'));
+const readFixture = (name) => JSON.parse(fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+const CATALOG = readFixture('catalog-claude-code.json');
+const CATALOG_110 = readFixture('catalog-claude-code-1.1.0.json');
+const CLAUDE = CATALOG.agents.find((agent) => agent.name === 'claude-code');
+const PROJECT_ONLY_IDS = ['memory_init', 'status_line', 'notification', 'session_logger', 'damage_control'];
+const NOT_AVAILABLE = 'Not available here: Project Memory, Status Line, Notifications & TTS, Session Logger, Damage Control. '
+  + 'Run npx @bluecube-ai/coder inside a project to add them.';
 const MARKETPLACE = {
   name: 'bluecube-coder',
   plugins: [{ name: 'kb-knowledge-graph', description: 'KB' }, { name: 'bluecube-sdlc', description: 'SDLC' }],
@@ -70,18 +76,66 @@ describe('chooseHarness', () => {
   });
 });
 
+describe('projectOnlyCategories', () => {
+  it('should list the repo-only entries of the SDK 1.1.0 catalog in catalog order', () => {
+    assert.deepEqual(projectOnlyCategories(CATALOG_110), [
+      { id: 'memory_init', label: 'Project Memory' },
+      { id: 'status_line', label: 'Status Line' },
+      { id: 'notification', label: 'Notifications & TTS' },
+      { id: 'session_logger', label: 'Session Logger' },
+      { id: 'damage_control', label: 'Damage Control' },
+    ]);
+  });
+
+  it('should list nothing for the SDK 1.0.0 catalog and never list a disabled entry', () => {
+    assert.deepEqual(projectOnlyCategories(CATALOG), []);
+    assert.ok(!projectOnlyCategories(CATALOG_110).some(({ id }) => id === 'adw'));
+  });
+
+  it('should skip the BlueCube Marketplace group', () => {
+    const hidden = { id: 'bluecube_sdlc_plugin', group: HIDDEN_GROUP, label: 'SDLC', scope: ['repo'] };
+    assert.deepEqual(projectOnlyCategories({ ...CATALOG, categories: [hidden] }), []);
+  });
+});
+
 describe('chooseScope', () => {
+  const PROJECT_ONLY = projectOnlyCategories(CATALOG_110);
+
   it('should skip the prompt when the scope was given', async () => {
     const prompt = fakePrompt();
-    assert.equal(await chooseScope({ options: { scope: 'homedir' }, prompt }), 'homedir');
+    assert.equal(await chooseScope({ options: { scope: 'homedir' }, prompt, agent: CLAUDE }), 'homedir');
     assert.equal(prompt.asked.length, 0);
   });
 
-  it('should offer repo first with the cwd hint', async () => {
+  it('should offer repo first and name the folder each choice writes to', async () => {
     const prompt = fakePrompt({ select: 'repo' });
-    await chooseScope({ options: { scope: null, cwd: '/work/app' }, prompt });
-    assert.equal(prompt.asked[0].options[0].value, 'repo');
-    assert.equal(prompt.asked[0].options[0].hint, 'current directory: /work/app');
+    await chooseScope({ options: { scope: null, cwd: '/work/app', target: null }, prompt, agent: CLAUDE, projectOnly: PROJECT_ONLY });
+    const [repo, home] = prompt.asked[0].options;
+    assert.deepEqual(repo, { value: 'repo', label: `Only this project (${path.join('/work/app', '.claude')})` });
+    assert.equal(home.value, 'homedir');
+    assert.equal(home.label, 'Every project on this machine (~/.claude)');
+    assert.equal(prompt.asked[0].initialValue, 'repo');
+  });
+
+  it('should name the project-only entries in the home hint', async () => {
+    const prompt = fakePrompt({ select: 'homedir' });
+    await chooseScope({ options: { scope: null, cwd: '/work/app', target: null }, prompt, agent: CLAUDE, projectOnly: PROJECT_ONLY });
+    assert.equal(prompt.asked[0].options[1].hint, NOT_AVAILABLE);
+  });
+
+  it('should leave the home hint out without project-only entries', async () => {
+    const prompt = fakePrompt({ select: 'homedir' });
+    await chooseScope({ options: { scope: null, cwd: '/work/app', target: null }, prompt, agent: CLAUDE, projectOnly: [] });
+    assert.ok(!('hint' in prompt.asked[0].options[1]));
+  });
+
+  it('should name the --target folder in both labels', async () => {
+    const prompt = fakePrompt({ select: 'repo' });
+    await chooseScope({ options: { scope: null, cwd: '/work/app', target: '/t' }, prompt, agent: CLAUDE });
+    assert.deepEqual(prompt.asked[0].options.map((o) => o.label), [
+      `Only this project (${path.join('/t', '.claude')})`,
+      `Every project on this machine (${path.join('/t', '.claude')})`,
+    ]);
   });
 });
 
@@ -144,6 +198,20 @@ describe('buildOptions', () => {
     assert.ok(!buildOptions({ ...CATALOG, agent: 'pi' }, 'repo', MARKETPLACE).some((o) => o.value.startsWith('plugin:')));
   });
 
+  it('should tag the project-only entries of a repo run', () => {
+    const options = buildOptions(CATALOG_110, 'repo', MARKETPLACE);
+    const label = (id) => options.find((o) => o.value === id).label;
+    assert.equal(label('damage_control'), 'Damage Control (this project only)');
+    assert.equal(label('git'), 'Git Commands');
+    assert.ok(options.filter((o) => o.value.startsWith('plugin:')).every((o) => o.group === 'Claude Code plugins'));
+  });
+
+  it('should leave the project-only entries out of a home run without a tag', () => {
+    const options = buildOptions(CATALOG_110, 'homedir', MARKETPLACE);
+    assert.ok(!options.some((o) => PROJECT_ONLY_IDS.includes(o.value)));
+    assert.ok(!options.some((o) => o.label.includes('this project only')));
+  });
+
   it('should badge experimental categories once', () => {
     const agentTeam = buildOptions(CATALOG, 'repo', null).find((o) => o.value === 'agent_team');
     assert.equal(agentTeam.label, 'Agent Teams (Experimental)');
@@ -179,6 +247,54 @@ describe('chooseCategories', () => {
     const prompt = fakePrompt({ groupMultiselect: [[], []] });
     await assert.rejects(chooseCategories({ options, prompt, scope: 'repo', agent: 'claude-code' }), { code: EXIT.CANCELLED });
     assert.equal(prompt.asked.length, 2);
+  });
+
+  describe('when a home run asks for a project-only id', () => {
+    const home = buildOptions(CATALOG_110, 'homedir', MARKETPLACE);
+    const projectOnly = projectOnlyCategories(CATALOG_110);
+    const ask = (requested, scopeFlag) => chooseCategories({
+      options: home, prompt: fakePrompt(), requested, scope: 'homedir', agent: 'claude-code', projectOnly, scopeFlag,
+    });
+
+    it('should refuse with exit 2 and name the id and the command to run inside the project', async () => {
+      await assert.rejects(ask(['git', 'damage_control'], '-g'), (err) => {
+        assert.equal(err.code, EXIT.PREFLIGHT);
+        assert.equal(err.message, "Damage Control (damage_control) can't be installed with -g. It only works inside one project.\n"
+          + 'Run this inside the project instead:\n\n  npx @bluecube-ai/coder --categories damage_control\n\nNothing was installed.');
+        return true;
+      });
+    });
+
+    it('should name several refused ids in one sentence and one command', async () => {
+      await assert.rejects(ask(['status_line', 'git', 'damage_control'], '-g'), (err) => {
+        assert.ok(err.message.startsWith(
+          "Status Line (status_line) and Damage Control (damage_control) can't be installed with -g. They only work inside one project.",
+        ));
+        assert.ok(err.message.includes('  npx @bluecube-ai/coder --categories status_line,damage_control\n'));
+        return true;
+      });
+    });
+
+    it('should name the flag that chose the home scope, or the prompt choice', async () => {
+      await assert.rejects(ask(['damage_control'], '--scope homedir'), /can't be installed with --scope homedir\. It only works/);
+      await assert.rejects(ask(['damage_control'], null), /can't be installed for every project\. It only works/);
+    });
+
+    it('should report an unknown id first and never call a refused id unknown', async () => {
+      await assert.rejects(ask(['nope', 'damage_control'], '-g'), (err) => {
+        assert.equal(err.code, EXIT.PREFLIGHT);
+        assert.ok(err.message.startsWith('Unknown category id(s) for claude-code in homedir scope: nope\n'));
+        return true;
+      });
+    });
+
+    it('should accept a project-only id on a repo run', async () => {
+      const repo = buildOptions(CATALOG_110, 'repo', MARKETPLACE);
+      const selected = await chooseCategories({
+        options: repo, prompt: fakePrompt(), requested: ['damage_control'], scope: 'repo', agent: 'claude-code', projectOnly, scopeFlag: null,
+      });
+      assert.deepEqual(selected, ['damage_control']);
+    });
   });
 
   it('should exit 0 with a message when nothing is available', async () => {

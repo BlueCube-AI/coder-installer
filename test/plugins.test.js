@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 import * as messages from '../src/messages.js';
 import {
-  aheadPlugins, planMigration, planPluginCommands, runPluginCommands, sourceMatches, wantedSource,
+  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, sourceMatches, wantedSource,
 } from '../src/plugins.js';
 import { installedPlugins, readRegistration, registryPaths } from '../src/registry.js';
 import { collectLog, fakeExec, legacyDeclaration, registryFixture, writeJson } from './helpers.js';
@@ -113,11 +113,24 @@ describe('planMigration', () => {
       plugins: [{ name: 'bluecube-sdlc', scope: 'user' }, { name: 'kb-knowledge-graph', scope: 'project' }, { name: 'bluecube-sdlc', scope: 'user' }],
       leftoverDirs: ['/h/.claude/plugins/bluecube-sdlc'],
     };
-    assert.deepEqual(planMigration({ ...args, scope: 'repo', registration: { declared: null, legacy } }), {
+    const migration = planMigration({ ...args, scope: 'repo', registration: { declared: null, legacy } });
+    assert.deepEqual(migration, {
       reason: 'legacy',
       carried: [{ name: 'bluecube-sdlc', scope: 'user' }, { name: 'kb-knowledge-graph', scope: 'project' }],
       leftoverDirs: ['/h/.claude/plugins/bluecube-sdlc'],
     });
+    const plan = planPluginCommands({ selected: [], scope: 'repo', wanted: GITHUB, migration, installed: [], pinned: PINNED });
+    assert.deepEqual(plan.filter((step) => step.kind === 'install').map((step) => step.args), [
+      install('bluecube-sdlc', 'user'), install('kb-knowledge-graph', 'user'),
+    ]);
+  });
+
+  it('should reinstall a plugin carried at user and project scope once, at user scope', () => {
+    const legacy = { plugins: [{ name: 'bluecube-sdlc', scope: 'user' }, { name: 'bluecube-sdlc', scope: 'project' }], leftoverDirs: [] };
+    const migration = planMigration({ ...args, scope: 'repo', registration: { declared: null, legacy } });
+    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration, installed: [], pinned: PINNED });
+    assert.deepEqual(migration.carried, [{ name: 'bluecube-sdlc', scope: 'user' }, { name: 'bluecube-sdlc', scope: 'project' }]);
+    assert.deepEqual(plan.filter((step) => step.kind === 'install').map((step) => step.args), [install('bluecube-sdlc', 'user')]);
   });
 
   it('should switch a directory registration back to GitHub and carry the installed plugins', () => {
@@ -144,11 +157,11 @@ describe('planMigration', () => {
 });
 
 describe('planPluginCommands', () => {
-  it('should add the marketplace, then install each plugin at project scope for repo', () => {
+  it('should add the marketplace, then install each plugin at user scope for repo', () => {
     assert.deepEqual(fresh(['kb-knowledge-graph', 'bluecube-sdlc'], 'repo').map((step) => step.args), [
       ADD,
-      install('kb-knowledge-graph', 'project'),
-      install('bluecube-sdlc', 'project'),
+      install('kb-knowledge-graph', 'user'),
+      install('bluecube-sdlc', 'user'),
     ]);
   });
 
@@ -160,9 +173,26 @@ describe('planPluginCommands', () => {
     assert.deepEqual(fresh([], 'repo'), []);
   });
 
-  it('should not reinstall a selected plugin already installed at the run scope', () => {
-    const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.1' }];
+  it('should not reinstall a selected plugin already installed at user scope on a repo run', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.1' }];
     assert.deepEqual(planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED }), []);
+  });
+
+  it('should not reinstall a selected plugin already installed at user scope on a home run', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.1' }];
+    assert.deepEqual(planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'homedir', wanted: GITHUB, migration: null, installed, pinned: PINNED }), []);
+  });
+
+  it('should install at user scope, never at project scope, when the plugin is installed only for this project', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.1' }];
+    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
+    assert.deepEqual(plan.map((step) => step.args), [ADD, install('bluecube-sdlc', 'user')]);
+  });
+
+  it('should still update a project scope copy behind the pinned release at its own scope', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.0' }];
+    const plan = planPluginCommands({ selected: [], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
+    assert.deepEqual(plan.map((step) => step.args), [ADD, MARKETPLACE_UPDATE, update('bluecube-sdlc', 'project')]);
   });
 
   it('should update the marketplace, then each plugin behind the pinned release at its scope', () => {
@@ -189,6 +219,35 @@ describe('planPluginCommands', () => {
     assert.deepEqual(local.map((step) => step.args), [['plugin', 'marketplace', 'add', CHECKOUT], install('bluecube-sdlc', 'user')]);
     const github = planPluginCommands({ selected: [], scope: 'homedir', wanted: GITHUB, migration, installed: [], pinned: PINNED });
     assert.deepEqual(github[0].args, ADD);
+  });
+});
+
+describe('installedPluginNames', () => {
+  const OK_OUTCOME = { rolledBack: null };
+  const results = (statuses) => fresh(['kb-knowledge-graph', 'bluecube-sdlc'], 'repo')
+    .map((step, index) => ({ step, status: statuses[index] }));
+
+  it('should drop a plugin whose install failed or was skipped', () => {
+    const selected = ['kb-knowledge-graph', 'bluecube-sdlc'];
+    assert.deepEqual(installedPluginNames({ selected, migration: null, results: results(['ok', 'failed', 'ok']), outcome: OK_OUTCOME }), ['bluecube-sdlc']);
+    assert.deepEqual(installedPluginNames({ selected, migration: null, results: results(['skipped', 'skipped', 'skipped']), outcome: OK_OUTCOME }), []);
+  });
+
+  it('should keep a selected plugin that was already installed', () => {
+    assert.deepEqual(installedPluginNames({ selected: ['bluecube-sdlc'], migration: null, results: [], outcome: OK_OUTCOME }), ['bluecube-sdlc']);
+  });
+
+  it('should list the selected plugins, then the carried ones, once each', () => {
+    const migration = { carried: [{ name: 'kb-knowledge-graph', scope: 'user' }, { name: 'bluecube-sdlc', scope: 'project' }] };
+    assert.deepEqual(
+      installedPluginNames({ selected: ['bluecube-sdlc'], migration, results: [], outcome: OK_OUTCOME }),
+      ['bluecube-sdlc', 'kb-knowledge-graph'],
+    );
+  });
+
+  it('should list nothing after a rollback', () => {
+    const outcome = { rolledBack: { command: 'claude plugin install bluecube-sdlc@bluecube-coder --scope user', code: 1 } };
+    assert.deepEqual(installedPluginNames({ selected: ['bluecube-sdlc'], migration: null, results: [], outcome }), []);
   });
 });
 
@@ -302,7 +361,7 @@ describe('runPluginCommands with a migration', () => {
     const exec = fakeExec(currentClaude((cmd, args) => {
       // Claude Code records the new marketplace before the install fails.
       if (args[2] === 'add') writeJson(machine.paths.known, { 'bluecube-coder': { source: { source: 'github' } } });
-      return args[2] === 'kb-knowledge-graph@bluecube-coder' ? { code: 1 } : {};
+      return args[2] === 'bluecube-sdlc@bluecube-coder' ? { code: 1 } : {};
     }));
     const log = collectLog();
 
@@ -310,10 +369,10 @@ describe('runPluginCommands with a migration', () => {
 
     assert.deepEqual(readFiles(machine.paths), before);
     assert.ok(machine.leftoverDirs.every((dir) => fs.existsSync(dir)));
-    const command = `claude ${install('kb-knowledge-graph', 'user').join(' ')}`;
+    const command = `claude ${install('bluecube-sdlc', 'user').join(' ')}`;
     assert.deepEqual(outcome.rolledBack, { command, code: 1 });
     assert.equal(outcome.migrated, null);
-    assert.deepEqual(results.map((r) => r.status), ['ok', 'ok', 'failed', 'rolled-back']);
+    assert.deepEqual(results.map((r) => r.status), ['ok', 'failed', 'rolled-back']);
     assert.deepEqual(log.lines, [messages.pluginFailed(command, 1)]);
   });
 
