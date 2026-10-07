@@ -18,8 +18,9 @@ const REQUIRED_OPTIONS = [
   { args: ['plugin', 'install', '--help'], option: '--scope' },
 ];
 
-// `marketplace add BlueCube-AI/bluecube-coder` may be recorded as a git source with the full URL.
-const GITHUB_REPO_URL = new RegExp(`github\\.com[/:]${messages.MARKETPLACE_REPO}(\\.git)?$`, 'i');
+// `marketplace add <owner>/<name>` may be recorded as a git source with the full URL.
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const githubRepoUrl = (repo) => new RegExp(`github\\.com[/:]${escapeRegExp(repo)}(\\.git)?$`, 'i');
 
 export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 
@@ -27,15 +28,17 @@ export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 const PLUGIN_SCOPE = 'user';
 
 /**
- * The marketplace source this run registers: the local checkout for a file:// SDK URL, whose
- * plugins then load in place, else the GitHub repository.
+ * The marketplace source this run registers: the local checkout for a file:// URL, whose
+ * plugins then load in place, else the GitHub repository the run installs from. Null for any
+ * other URL: the run has no marketplace to register.
  */
-export function wantedSource(sdkUrl) {
+export function wantedSource(sdkUrl, repoSlug) {
   if (sdkUrl.startsWith('file://')) {
     const checkout = fileURLToPath(sdkUrl);
     return { kind: 'directory', path: checkout, addArgs: [checkout] };
   }
-  return { kind: 'github', addArgs: [messages.MARKETPLACE_REPO, '--sparse', '.claude-plugin', 'plugins'] };
+  if (!repoSlug) return null;
+  return { kind: 'github', repo: repoSlug, addArgs: [repoSlug, '--sparse', '.claude-plugin', 'plugins'] };
 }
 
 export function sourceMatches(declared, wanted) {
@@ -45,9 +48,9 @@ export function sourceMatches(declared, wanted) {
       && path.resolve(declared.path) === path.resolve(wanted.path);
   }
   if (declared.source === 'github') {
-    return typeof declared.repo === 'string' && declared.repo.toLowerCase() === messages.MARKETPLACE_REPO.toLowerCase();
+    return typeof declared.repo === 'string' && declared.repo.toLowerCase() === wanted.repo.toLowerCase();
   }
-  return declared.source === 'git' && typeof declared.url === 'string' && GITHUB_REPO_URL.test(declared.url);
+  return declared.source === 'git' && typeof declared.url === 'string' && githubRepoUrl(wanted.repo).test(declared.url);
 }
 
 /**

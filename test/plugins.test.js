@@ -17,7 +17,9 @@ const HELP_ADD = ['plugin', 'marketplace', 'add', '--help'];
 const HELP_INSTALL = ['plugin', 'install', '--help'];
 const MARKETPLACE_UPDATE = ['plugin', 'marketplace', 'update', 'bluecube-coder'];
 const GITHUB_URL = 'https://github.com/BlueCube-AI/bluecube-coder.git';
-const GITHUB = wantedSource(GITHUB_URL);
+const GITHUB = wantedSource(GITHUB_URL, 'BlueCube-AI/bluecube-coder');
+const CLIENT = 'BlueCube-AI/acme-coder';
+const CLIENT_URL = 'https://github.com/BlueCube-AI/acme-coder.git';
 const CHECKOUT = path.resolve('/src/bluecube-coder');
 const LOCAL = wantedSource(pathToFileURL(CHECKOUT).href);
 const PINNED = { 'kb-knowledge-graph': '0.7.2', 'bluecube-sdlc': '1.1.1' };
@@ -70,12 +72,24 @@ function legacyMachine({ scope = 'homedir', selected = [], wanted = GITHUB } = {
 
 describe('wantedSource', () => {
   it('should register the GitHub repository with the sparse paths for the GitHub SDK URL', () => {
-    assert.deepEqual(GITHUB, { kind: 'github', addArgs: ADD.slice(3) });
+    assert.deepEqual(GITHUB, { kind: 'github', repo: 'BlueCube-AI/bluecube-coder', addArgs: ADD.slice(3) });
   });
 
   it('should register the checkout directory for a file:// SDK URL', () => {
     const checkout = path.resolve('/tmp/sdk');
     assert.deepEqual(wantedSource(pathToFileURL(checkout).href), { kind: 'directory', path: checkout, addArgs: [checkout] });
+    assert.equal(wantedSource(pathToFileURL(checkout).href, null).kind, 'directory');
+  });
+
+  it('should register the chosen client repository with the sparse paths', () => {
+    assert.deepEqual(wantedSource(CLIENT_URL, CLIENT), {
+      kind: 'github', repo: CLIENT, addArgs: [CLIENT, '--sparse', '.claude-plugin', 'plugins'],
+    });
+    assert.equal(wantedSource('git@github.com:BlueCube-AI/acme-coder.git', CLIENT).addArgs[0], CLIENT);
+  });
+
+  it('should have no source for a URL that names no GitHub repository', () => {
+    assert.equal(wantedSource('https://git.example.test/acme-coder.git', null), null);
   });
 });
 
@@ -84,6 +98,26 @@ describe('sourceMatches', () => {
     assert.equal(sourceMatches({ source: 'github', repo: 'BlueCube-AI/bluecube-coder' }, GITHUB), true);
     assert.equal(sourceMatches({ source: 'git', url: GITHUB_URL, sparsePaths: ['plugins'] }, GITHUB), true);
     assert.equal(sourceMatches({ source: 'git', url: 'https://github.com/BlueCube-AI/bluecube-coder' }, GITHUB), true);
+  });
+
+  it('should match the chosen client repository as a github or git source', () => {
+    const client = wantedSource(CLIENT_URL, CLIENT);
+    assert.equal(sourceMatches({ source: 'github', repo: 'bluecube-ai/ACME-coder' }, client), true);
+    assert.equal(sourceMatches({ source: 'git', url: CLIENT_URL }, client), true);
+    assert.equal(sourceMatches({ source: 'git', url: 'git@github.com:BlueCube-AI/acme-coder.git' }, client), true);
+  });
+
+  it('should not match the SDK repository for a client repository, or the other way round', () => {
+    const client = wantedSource(CLIENT_URL, CLIENT);
+    assert.equal(sourceMatches({ source: 'github', repo: 'BlueCube-AI/bluecube-coder' }, client), false);
+    assert.equal(sourceMatches({ source: 'git', url: GITHUB_URL }, client), false);
+    assert.equal(sourceMatches({ source: 'github', repo: CLIENT }, GITHUB), false);
+  });
+
+  it('should read a dot in the repository name literally', () => {
+    const dotted = wantedSource('https://github.com/BlueCube-AI/acme.coder.git', 'BlueCube-AI/acme.coder');
+    assert.equal(sourceMatches({ source: 'git', url: 'https://github.com/BlueCube-AI/acme.coder.git' }, dotted), true);
+    assert.equal(sourceMatches({ source: 'git', url: 'https://github.com/BlueCube-AI/acmeXcoder.git' }, dotted), false);
   });
 
   it('should match a directory source with a trailing slash', () => {
@@ -141,6 +175,18 @@ describe('planMigration', () => {
       carried: [{ name: 'bluecube-sdlc', scope: 'user' }, { name: 'kb-knowledge-graph', scope: 'user' }],
       leftoverDirs: [],
     });
+  });
+
+  it('should switch the SDK marketplace to a client repository and carry the installed plugins', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.1' }];
+    const registration = { declared: { source: 'github', repo: 'BlueCube-AI/bluecube-coder' }, legacy: null };
+    const client = wantedSource(CLIENT_URL, CLIENT);
+    const migration = planMigration({ ...args, installed, registration, wanted: client });
+    assert.deepEqual(migration, { reason: 'switch', carried: [{ name: 'bluecube-sdlc', scope: 'user' }], leftoverDirs: [] });
+    const plan = planPluginCommands({ selected: [], scope: 'homedir', wanted: client, migration, installed, pinned: PINNED });
+    assert.deepEqual(plan.map((step) => step.args), [
+      ['plugin', 'marketplace', 'add', CLIENT, '--sparse', '.claude-plugin', 'plugins'], install('bluecube-sdlc', 'user'),
+    ]);
   });
 
   it('should switch a github registration to the local checkout on a file:// run', () => {

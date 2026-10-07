@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { EXIT } from '../src/cli.js';
 import {
-  HIDDEN_GROUP, buildHarnessOptions, buildOptions, chooseCategories, chooseHarness, chooseScope,
-  confirmRepoTarget, projectOnlyCategories, readMarketplace,
+  HIDDEN_GROUP, buildHarnessOptions, buildOptions, chooseCategories, chooseHarness, chooseRepository,
+  chooseScope, confirmRepoTarget, projectOnlyCategories, readMarketplace,
 } from '../src/picker.js';
 import { collectLog, fakeExec, fakePrompt } from './helpers.js';
 
@@ -28,6 +28,29 @@ const ALL_DETECTED = [
   { name: 'codex', binary: 'codex', path: '/bin/codex' },
   { name: 'pi', binary: 'pi', path: '/bin/pi' },
 ];
+
+describe('chooseRepository', () => {
+  const SDK_URL = 'https://github.com/BlueCube-AI/bluecube-coder.git';
+
+  it('should offer the client repository first and the full SDK for BlueCube staff', async () => {
+    const prompt = fakePrompt({ select: 'sdk' });
+    assert.equal(await chooseRepository({ prompt, sdkRepo: SDK_URL }), SDK_URL);
+    assert.deepEqual(prompt.asked[0].options, [
+      { value: 'client', label: 'My client repository' },
+      { value: 'sdk', label: 'Full BlueCube SDK (BlueCube staff)' },
+    ]);
+    assert.equal(prompt.asked[0].initialValue, 'client');
+    assert.equal(prompt.asked.length, 1);
+  });
+
+  it('should ask for the client repository as owner/name and trim it', async () => {
+    const prompt = fakePrompt({ select: 'client', text: ' BlueCube-AI/acme-coder ' });
+    assert.equal(await chooseRepository({ prompt, sdkRepo: SDK_URL }), 'BlueCube-AI/acme-coder');
+    assert.equal(prompt.asked[1].kind, 'text');
+    assert.equal(prompt.asked[1].validate('BlueCube-AI/acme-coder'), undefined);
+    assert.match(prompt.asked[1].validate('acme-coder'), /owner\/name/);
+  });
+});
 
 describe('chooseHarness', () => {
   it('should render a detected harness missing from the catalog as disabled with the unsupported hint', () => {
@@ -198,6 +221,15 @@ describe('buildOptions', () => {
     assert.ok(!buildOptions({ ...CATALOG, agent: 'pi' }, 'repo', MARKETPLACE).some((o) => o.value.startsWith('plugin:')));
   });
 
+  it('should pre-select every category and plugin of a client package', () => {
+    const catalog = { ...CATALOG_110, categories: CATALOG_110.categories.map((cat) => ({ ...cat, default: false })) };
+    for (const scope of ['repo', 'homedir']) {
+      const options = buildOptions(catalog, scope, MARKETPLACE, { selectAll: true });
+      assert.ok(options.some((o) => o.value.startsWith('plugin:')));
+      assert.ok(options.every((o) => o.selected), scope);
+    }
+  });
+
   it('should tag the project-only entries of a repo run', () => {
     const options = buildOptions(CATALOG_110, 'repo', MARKETPLACE);
     const label = (id) => options.find((o) => o.value === id).label;
@@ -241,6 +273,14 @@ describe('chooseCategories', () => {
     assert.equal(prompt.asked.length, 1);
     assert.deepEqual(Object.keys(prompt.asked[0].options)[0], 'Foundation');
     assert.ok(prompt.asked[0].initialValues.includes('memory_init'));
+  });
+
+  it('should start with every option of a client package selected', async () => {
+    const all = buildOptions(CATALOG_110, 'repo', MARKETPLACE, { selectAll: true });
+    const prompt = fakePrompt({ groupMultiselect: [['git']] });
+    await chooseCategories({ options: all, prompt, scope: 'repo', agent: 'claude-code' });
+    assert.deepEqual(prompt.asked[0].initialValues, all.map((option) => option.value));
+    assert.ok(prompt.asked[0].initialValues.includes('plugin:bluecube-sdlc'));
   });
 
   it('should ask once more on an empty selection, then cancel', async () => {

@@ -96,6 +96,41 @@ describe('ensureGitAccess', () => {
     });
   });
 
+  describe('for a client repository', () => {
+    const clientUrl = 'https://github.com/BlueCube-AI/acme-coder.git';
+    const client = 'BlueCube-AI/acme-coder';
+    const stderr = 'remote: Repository not found.';
+    // Today's text for the SDK repository, with the client repository named instead.
+    const asClient = (text) => text.replaceAll('BlueCube-AI/bluecube-coder', client);
+
+    it('should name the client repository in gitNoAccess and keep every other line', () => {
+      const message = messages.gitNoAccess(clientUrl, stderr, client);
+      assert.equal(message, asClient(messages.gitNoAccess(clientUrl, stderr)));
+      assert.match(message, /^If that is the right account, ask BlueCube for read access to BlueCube-AI\/acme-coder\.$/m);
+      assert.match(message, /^Or use SSH: set BLUECUBE_SDK_URL=git@github\.com:BlueCube-AI\/acme-coder\.git /m);
+      assert.doesNotMatch(message, /bluecube-coder/);
+    });
+
+    it('should name the client repository in the SSH hint of gitAccessFailed and keep every other line', () => {
+      const message = messages.gitAccessFailed(clientUrl, stderr, false, client);
+      assert.equal(message, asClient(messages.gitAccessFailed(clientUrl, stderr, false)));
+      assert.match(message, /git@github\.com:BlueCube-AI\/acme-coder\.git/);
+    });
+
+    it('should pass the repository to the message it throws', async () => {
+      const exec = fakeExec(() => ({ code: 128, stderr }));
+      await assert.rejects(
+        ensureGitAccess({ exec, which: fakeWhich(['git']), url: clientUrl, repo: client }),
+        (err) => isPreflight(err) && err.message === messages.gitNoAccess(clientUrl, stderr, client),
+      );
+      const failing = fakeExec(() => ({ code: 128, stderr: 'fatal: Authentication failed' }));
+      await assert.rejects(
+        ensureGitAccess({ exec: failing, which: fakeWhich(['git']), url: clientUrl, repo: client }),
+        (err) => isPreflight(err) && err.message === messages.gitAccessFailed(clientUrl, 'fatal: Authentication failed', false, client),
+      );
+    });
+  });
+
   it('should exit 2 on timeout', async () => {
     const exec = fakeExec(() => ({ code: 124, timedOut: true }));
     await assert.rejects(ensureGitAccess({ exec, which: fakeWhich(['git']), url }), (err) => isPreflight(err) && /timed out/.test(err.message));

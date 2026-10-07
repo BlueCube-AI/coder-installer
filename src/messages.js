@@ -1,32 +1,39 @@
 // Every sentence the installer shows to a user lives here, so wording can be
 // reviewed in one place and tests can assert on the exact text.
 
-export const MARKETPLACE_REPO = 'BlueCube-AI/bluecube-coder';
+export const SDK_REPO = 'BlueCube-AI/bluecube-coder';
 export const NPX_COMMAND = 'npx @bluecube-ai/coder';
 
-export const usage = (name) => `Usage: ${name} [options]
+export const usage = (name) => `Usage: ${name} [<owner/repo>] [options]
 
-Install BlueCube Coder tooling from a pinned SDK release.
+Install BlueCube Coder tooling from your client repository, or from a pinned SDK release.
+
+Arguments:
+  <owner/repo>            Your client repository (for example BlueCube-AI/acme-coder) or a
+                          git URL; BlueCube staff use ${SDK_REPO}
 
 Options:
+      --repo <repo>       Same as the <owner/repo> argument
   -g, --global            Install into your home directory (same as --scope homedir)
       --scope <scope>     repo (default target: current directory) or homedir
       --agent <name>      claude-code, pi or opencode
       --categories <ids>  Comma-separated category ids (skips the picker)
-      --ref <ref>         SDK tag, branch or commit (default: the pinned ref)
+      --ref <ref>         Tag, branch or commit (default: main for a client repository, the
+                          pinned ref for the full SDK)
       --target <path>     Install target directory
   -y, --yes               Answer yes to every confirmation
       --dry-run           Print the deploy and plugin commands without running them
   -h, --help              Show this help
       --version           Show the installer version
 
-With --agent, --scope (or -g), --categories and --yes no question is asked.
+Without a repository the installer asks for one.
+With a repository, --agent, --scope (or -g), --categories and --yes no question is asked.
 
 Exit codes: 0 success, 1 deploy failed or plugin migration rolled back,
             2 preflight failed, 3 unsupported harness, 130 cancelled.
 
 Environment:
-  BLUECUBE_SDK_URL    Git URL of the SDK (default: the BlueCube repository)
+  BLUECUBE_SDK_URL    Git URL to install from; replaces the repository's URL (SSH, tests)
   BLUECUBE_CACHE_DIR  Source cache (default: ~/.bluecube/cache/sources)
   DEBUG               Print stack traces for unexpected errors`;
 
@@ -36,6 +43,22 @@ export const intro = (version) => `BlueCube Coder installer ${version}`;
 export const flagError = (detail) => `${detail}\nRun with --help to see the options.`;
 export const scopeConflict = 'Conflicting scope: -g selects homedir but --scope says repo.';
 export const scopeInvalid = (value) => `Unknown scope '${value}'. Use repo or homedir.`;
+
+// -- repository ---------------------------------------------------------------
+export const repoPrompt = 'Where should the tooling come from?';
+export const repoClientLabel = 'My client repository';
+export const repoSdkLabel = 'Full BlueCube SDK (BlueCube staff)';
+export const repoNamePrompt = 'Client repository (owner/name)';
+export const repoNamePlaceholder = 'BlueCube-AI/acme-coder';
+export const repoNameInvalid = 'Enter the repository as owner/name, for example BlueCube-AI/acme-coder.';
+export const repoInvalid = (value) =>
+  `'${value}' is not a repository. Use owner/name, for example BlueCube-AI/acme-coder, or a git URL.`;
+export const repoConflict = 'Name one repository: as the argument or with --repo.';
+export const repoRequired = `No repository given. Name your client repository:
+
+  ${NPX_COMMAND} <owner/client-repo>
+
+BlueCube staff install the full SDK with ${NPX_COMMAND} ${SDK_REPO}.`;
 
 // -- preflight ----------------------------------------------------------------
 export const uvMissing = (command) =>
@@ -50,9 +73,11 @@ const gitSaid = (stderr) => {
   const details = (stderr || '').trim().split('\n').filter(Boolean).map((line) => `    ${line}`).join('\n');
   return details ? `\n\n  git said:\n${details}` : '';
 };
-const sshAlternative = `Or use SSH: set BLUECUBE_SDK_URL=git@github.com:${MARKETPLACE_REPO}.git after adding your SSH key to GitHub.`;
+// The access messages name the chosen repository; a URL that names none keeps the SDK's.
+const sshAlternative = (repo) =>
+  `Or use SSH: set BLUECUBE_SDK_URL=git@github.com:${repo ?? SDK_REPO}.git after adding your SSH key to GitHub.`;
 
-export const gitAccessFailed = (url, stderr, timedOut) => {
+export const gitAccessFailed = (url, stderr, timedOut, repo) => {
   const reason = timedOut ? 'The request timed out after 30 seconds.' : 'git could not read the repository.';
   return `Cannot reach the BlueCube SDK repository at ${url}.
 ${reason} The repository is private, so git needs your GitHub credentials:
@@ -60,9 +85,9 @@ ${reason} The repository is private, so git needs your GitHub credentials:
   gh auth login
   gh auth setup-git
 
-${sshAlternative}${gitSaid(stderr)}`;
+${sshAlternative(repo)}${gitSaid(stderr)}`;
 };
-export const gitNoAccess = (url, stderr) => `Cannot read the BlueCube SDK repository at ${url}.
+export const gitNoAccess = (url, stderr, repo) => `Cannot read the BlueCube SDK repository at ${url}.
 git signed in to GitHub, but the account it used cannot see this repository. Usually git is
 using another account or an old saved login, not the one that was given access:
 
@@ -70,8 +95,8 @@ using another account or an old saved login, not the one that was given access:
   gh auth login        # sign in with the account that has access (gh auth switch if you have several)
   gh auth setup-git    # makes git use that login for github.com
 
-If that is the right account, ask BlueCube for read access to ${MARKETPLACE_REPO}.
-${sshAlternative}${gitSaid(stderr)}`;
+If that is the right account, ask BlueCube for read access to ${repo ?? SDK_REPO}.
+${sshAlternative(repo)}${gitSaid(stderr)}`;
 
 // -- source -------------------------------------------------------------------
 export const sourceClone = (url, slot) => `Source: git clone ${url} into ${slot}`;
@@ -91,6 +116,13 @@ export const catalogFailed = (stderr) => `Reading the SDK category catalog faile
 export const catalogInvalid = 'The SDK printed a category catalog the installer cannot read.';
 export const catalogSchema = (found) =>
   `The SDK catalog has schemaVersion ${found}; this installer reads version 1. Update the installer (npx @bluecube-ai/coder@latest).`;
+
+// -- client package -----------------------------------------------------------
+// `fetched` is the slot's client-package.json, `installed` the target's SDK_MANIFEST.json.
+export const newerPackage = (fetched, installed) =>
+  `A newer version of your BlueCube Coder package is available: ${fetched.sdkVersion} `
+  + `(revision ${fetched.revision}). This install has ${installed.sdk_version} `
+  + `(revision ${installed.client_package.revision}).`;
 
 // -- picker -------------------------------------------------------------------
 export const harnessPrompt = 'Which coding agent should the tooling be installed for?';
@@ -138,6 +170,8 @@ export const promptInNonInteractive = (question) => `A question was needed in no
 export const deployFailed = (code) => `deploy.py exited with code ${code}.`;
 export const pluginFailed = (command, code) => `Plugin command failed (exit ${code}): ${command}`;
 export const pluginSkippedNoClaude = 'The claude CLI is not on PATH, so the plugins were not installed.';
+export const pluginSkippedNoSource = (url) =>
+  `The plugins were not installed: their marketplace is added from GitHub or a file:// checkout, not from ${url}.`;
 export const pluginClaudeTooOld =
   'This Claude Code version is too old to install plugins from the command line (its plugin commands lack --sparse or --scope), so the plugins were not installed.';
 export const unexpectedError = (message) => `Unexpected error: ${message}`;

@@ -1,14 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
-import { CliError, EXIT, defaultTarget, parseCli } from './cli.js';
+import { CliError, EXIT, defaultTarget, parseCli, repositorySource } from './cli.js';
 import { DEFAULT_AGENT, readCatalog } from './catalog.js';
 import { buildDeployArgs, runDeploy } from './deploy.js';
 import { detectHarnesses } from './detect.js';
 import { run, which } from './exec.js';
 import * as messages from './messages.js';
+import { isNewer, readClientPackage, readInstalledManifest } from './package.js';
 import {
-  PLUGIN_PREFIX, buildOptions, chooseCategories, chooseHarness, chooseScope,
+  PLUGIN_PREFIX, buildOptions, chooseCategories, chooseHarness, chooseRepository, chooseScope,
   confirmRepoTarget, createNonInteractivePrompt, createPrompt, projectOnlyCategories, readMarketplace,
 } from './picker.js';
 import {
@@ -45,23 +47,36 @@ const NO_PLUGINS = { plan: [], migration: null, paths: null, wanted: null, insta
 // Read the Claude Code plugin registry and plan the plugin steps. Only claude-code runs get
 // here: Pi and OpenCode never read or write the registry.
 function planPlugins({ deps, options, scope, target, selected, marketplace }) {
+  const wanted = wantedSource(options.sdkUrl, options.repoSlug);
+  if (!wanted) {
+    if (selected.length) deps.log(messages.pluginSkippedNoSource(options.sdkUrl));
+    return NO_PLUGINS;
+  }
   const configDir = claudeConfigDir({ env: deps.env, homedir: deps.homedir });
   const registry = { configDir, target, scope };
   const paths = registryPaths(registry);
   const registration = readRegistration(registry);
   const installed = installedPlugins(registry);
-  const wanted = wantedSource(options.sdkUrl);
   const pinned = Object.fromEntries((marketplace?.plugins ?? []).map((plugin) => [plugin.name, plugin.version]));
   const migration = planMigration({ registration, installed, wanted, selected });
   const plan = planPluginCommands({ selected, wanted, migration, installed, pinned });
   return { plan, migration, paths, wanted, installed, pinned };
 }
 
-async function install(options, deps) {
+// A run without a repository asks for one, or refuses when it may not ask.
+async function withRepository(options, { prompt, pkg, env }) {
+  if (options.sdkUrl) return options;
+  if (options.nonInteractive) throw new CliError(EXIT.PREFLIGHT, messages.repoRequired);
+  const repo = await chooseRepository({ prompt, sdkRepo: pkg.bluecube.sdkRepo });
+  return { ...options, ...repositorySource(repo, pkg, { env, ref: options.ref }) };
+}
+
+async function install(given, deps) {
   const { exec, which: whichFn, log, pkg } = deps;
-  const prompt = options.nonInteractive ? createNonInteractivePrompt() : deps.prompt;
+  const prompt = given.nonInteractive ? createNonInteractivePrompt() : deps.prompt;
 
   log(messages.intro(pkg.version));
+  const options = await withRepository(given, { prompt, pkg, env: deps.env });
   const detected = detectHarnesses({ which: whichFn });
 
   // Preflight: nothing is written to disk before these pass.
@@ -69,12 +84,13 @@ async function install(options, deps) {
     exec, which: whichFn, prompt, yes: options.yes, platform: deps.platform, log, homedir: deps.homedir,
   });
   if (deps.resolved) deps.resolved.uv = uvPath;
-  await ensureGitAccess({ exec, which: whichFn, url: options.sdkUrl });
+  await ensureGitAccess({ exec, which: whichFn, url: options.sdkUrl, repo: options.repoSlug });
 
   const source = await resolveSource({
     exec, cacheDir: options.cacheDir, url: options.sdkUrl, ref: options.ref, log,
     confirm: prompt.confirm, yes: options.yes,
   });
+  const clientPackage = readClientPackage(source.root);
 
   log(messages.catalogReading);
   const firstCatalog = await readCatalog({ exec, root: source.root, agent: DEFAULT_AGENT, ref: options.ref });
@@ -88,10 +104,13 @@ async function install(options, deps) {
 
   const scope = await chooseScope({ options, prompt, agent, projectOnly });
   const target = options.target ?? defaultTarget(scope, options);
+  // The headless deploy writes SDK_MANIFEST.json under <target>/<configDir> in both scopes.
+  const installed = readInstalledManifest(path.join(target, agent.configDir));
+  if (isNewer(clientPackage, installed)) log(messages.newerPackage(clientPackage, installed));
   if (scope === 'repo') await confirmRepoTarget({ exec, target, prompt, yes: options.yes, log });
 
   const marketplace = agent.name === 'claude-code' ? readMarketplace(source.root) : null;
-  const choices = buildOptions(catalog, scope, marketplace);
+  const choices = buildOptions(catalog, scope, marketplace, { selectAll: clientPackage !== null });
   const selected = await chooseCategories({
     options: choices, prompt, requested: options.categories, scope, agent: agent.name,
     projectOnly, scopeFlag: options.scopeFlag,
@@ -125,7 +144,8 @@ async function install(options, deps) {
   // Without claude the installed versions are not acted on, so they are not reported either.
   if (!pluginPlan.migration && claudePresent) outcome.ahead = aheadPlugins(pluginPlan);
   const categoryLabels = categories.map((id) => catalog.categories.find((cat) => cat.id === id).label);
-  const pluginNames = agent.name === 'claude-code'
+  // No marketplace source (a Pi or OpenCode run, or a skipped plugin step): no plugins.
+  const pluginNames = pluginPlan.wanted
     ? installedPluginNames({ selected: plugins, migration: pluginPlan.migration, results: pluginResults, outcome })
     : [];
   printSummary(
