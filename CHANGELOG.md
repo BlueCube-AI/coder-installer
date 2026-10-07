@@ -5,7 +5,7 @@ file. The SDK has its own changelog.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-10-07
 
 ### Changed
 - The SDK pin moves to `v1.1.0`.
