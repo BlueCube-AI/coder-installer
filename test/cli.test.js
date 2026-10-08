@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { CliError, EXIT, installDir, parseCli, repoSlugOf } from '../src/cli.js';
 import { main } from '../src/index.js';
@@ -188,12 +189,14 @@ describe('repository choice', () => {
   });
 
   it('should count BLUECUBE_SDK_URL as a repository in a non-interactive run', async () => {
-    const d = deps({ env: { BLUECUBE_SDK_URL: 'file:///pkg' } });
+    // A real file URL: on Windows it needs a drive letter, or fileURLToPath throws.
+    const sdkUrl = pathToFileURL(path.resolve('/pkg')).href;
+    const d = deps({ env: { BLUECUBE_SDK_URL: sdkUrl } });
     d.prompt = { confirm: fail, select: fail, text: fail, groupMultiselect: fail };
 
     assert.equal(await main(['--yes', ...HOME_GIT], d), EXIT.OK);
 
-    assert.equal(lsRemoteUrl(d.exec), 'file:///pkg');
+    assert.equal(lsRemoteUrl(d.exec), sdkUrl);
   });
 
   it('should offer the client repository and the full SDK, then install from the client repository', async () => {
