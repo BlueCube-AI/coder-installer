@@ -3,22 +3,24 @@
 Installs BlueCube Coder tooling (commands, agents, hooks, skills and Claude Code plugins) into a
 project or your home directory for Claude Code, Pi or OpenCode.
 
-The package carries no tooling content. It downloads a pinned release of the private BlueCube
-Coder SDK with your git credentials, reads the list of installable categories from it, and runs
-the SDK's own deploy script.
+The package carries no tooling content. It downloads your client repository (or, for BlueCube
+staff, a pinned release of the private BlueCube Coder SDK) with your git credentials, reads the
+list of installable categories from it, and runs the SDK's own deploy script.
 
 ## Prerequisites
 
 - Node.js 20 or later.
-- Read access to `github.com/BlueCube-AI/bluecube-coder`. The installer probes it with
-  `git ls-remote` and never asks for a password. If the probe fails, sign in once:
+- Read access to your client repository, for example `github.com/BlueCube-AI/acme-coder` (BlueCube
+  staff: `github.com/BlueCube-AI/bluecube-coder`). The installer probes it with `git ls-remote`
+  and never asks for a password. If the probe fails, sign in once:
 
   ```
   gh auth login
   gh auth setup-git
   ```
 
-  or use SSH with `BLUECUBE_SDK_URL=git@github.com:BlueCube-AI/bluecube-coder.git`.
+  or use SSH with `BLUECUBE_SDK_URL=git@github.com:BlueCube-AI/acme-coder.git`. When the account
+  git uses cannot see the repository, the installer names it so you can ask BlueCube for access.
 - [uv](https://docs.astral.sh/uv/). When it is missing the installer prints the official install
   command and offers to run it.
 - At least one of `claude`, `pi` or `opencode` on `PATH` (or pass `--agent`). `codex` is detected
@@ -27,20 +29,32 @@ the SDK's own deploy script.
 ## Usage
 
 ```
-npx @bluecube-ai/coder                  # pick agent, scope and categories interactively
-npx @bluecube-ai/coder -g               # install into your home directory
-npx @bluecube-ai/coder --agent claude-code --scope repo --categories git,context --yes
+npx @bluecube-ai/coder BlueCube-AI/acme-coder      # install from your client repository
+npx @bluecube-ai/coder BlueCube-AI/acme-coder -g   # install into your home directory
+npx @bluecube-ai/coder                             # ask for the repository first
+npx @bluecube-ai/coder BlueCube-AI/acme-coder --agent claude-code --scope repo --categories git,context --yes
+npx @bluecube-ai/coder BlueCube-AI/bluecube-coder  # BlueCube staff: the full SDK at the pinned release
 ```
 
-The last form asks no question and is meant for CI and containers.
+Replace `BlueCube-AI/acme-coder` with the repository BlueCube gave you. The installer accepts
+`owner/name` or a git URL, as the argument or with `--repo`. A client repository installs from
+its `main` branch; `BlueCube-AI/bluecube-coder` installs the pinned SDK release.
+
+Without a repository an interactive run asks where the tooling comes from: "My client
+repository" (then the repository as `owner/name`) or "Full BlueCube SDK (BlueCube staff)".
+
+The fourth form asks no question and is meant for CI and containers. A run with `--agent`,
+`--scope` (or `-g`), `--categories` and `--yes` but no repository exits 2 and prints the command
+to run with your repository. `BLUECUBE_SDK_URL` counts as a repository.
 
 | Flag | Meaning |
 |------|---------|
+| `<owner/repo>`, `--repo <repo>` | Repository to install from: `owner/name` or a git URL |
 | `-g`, `--global` | Install into the home directory (same as `--scope homedir`) |
 | `--scope <repo\|homedir>` | `repo` installs into `--target` or the current directory |
 | `--agent <name>` | `claude-code`, `pi` or `opencode` |
 | `--categories <a,b>` | Category ids, plus `plugin:<name>` for Claude Code plugins |
-| `--ref <ref>` | SDK tag, branch or commit (default: `bluecube.sdkRef` in `package.json`) |
+| `--ref <ref>` | Tag, branch or commit (default: `main` for a client repository; `bluecube.sdkRef` in `package.json` for `BlueCube-AI/bluecube-coder` and for any URL that names no GitHub repository, `file://` included) |
 | `--target <path>` | Install target directory |
 | `-y`, `--yes` | Answer yes to every confirmation |
 | `--dry-run` | Resolve the SDK and print the deploy and plugin commands without running them |
@@ -48,7 +62,8 @@ The last form asks no question and is meant for CI and containers.
 `uv run sdk/deploy.py --list-categories --agent <name>` in an SDK checkout lists the category ids.
 
 Claude Code plugins (`kb-knowledge-graph`, `bluecube-sdlc`) install through the `claude` CLI:
-`claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins`, then
+`claude plugin marketplace add <owner/repo> --sparse .claude-plugin plugins` for the repository
+you install from, then
 `claude plugin install <name>@bluecube-coder --scope user` on every run, so each plugin is
 installed once for every project. A plugin already installed for every project is updated,
 never installed again. Older Claude Code releases lack `--sparse` or `--scope`. The installer
@@ -64,6 +79,22 @@ report names the failing command and the installer exits 1.
 
 Rerunning the installer updates the plugins that are behind the pinned release and names them,
 and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout instead of GitHub.
+The marketplace is always named `bluecube-coder`, so moving a machine between the full SDK and a
+client repository reinstalls its plugins from the new source the same way. For a URL that is
+neither GitHub nor `file://` the installer has no marketplace to add: it skips the plugins and
+says so.
+
+## Client packages
+
+A client repository holds a client package: only the items BlueCube picked for that client, and
+a `client-package.json` with the package version and revision.
+
+- The picker lists only the package's categories and plugins, all pre-selected.
+- When the install target holds an older package, the run says so before it installs the new
+  one: "A newer version of your BlueCube Coder package is available: 1.2.0 (revision 1). This
+  install has 1.1.0 (revision 3)." Running the installer again is the upgrade.
+- An item BlueCube removes from your package stays installed, and it gets no more updates. The
+  installer never removes files.
 
 ## What goes where
 
@@ -81,7 +112,7 @@ and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout inste
 |------|---------|
 | 0 | Success (also when no category exists for the chosen agent and scope) |
 | 1 | The deploy failed, or the plugin migration was rolled back |
-| 2 | Preflight failed: uv, git access, unknown ref, unknown category id, a project-only category id with -g, or bad flag |
+| 2 | Preflight failed: no repository in a non-interactive run, uv, git access, unknown ref, unknown category id, a project-only category id with -g, or bad flag or repository |
 | 3 | The chosen agent is not supported by the pinned SDK |
 | 130 | Cancelled |
 
@@ -89,11 +120,11 @@ and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout inste
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BLUECUBE_SDK_URL` | `bluecube.sdkRepo` in `package.json` | Git URL of the SDK; maintainers point it at a `file://` checkout |
+| `BLUECUBE_SDK_URL` | unset | Git URL to install from. It replaces the URL of the chosen repository and counts as a repository on its own; use it for SSH, and maintainers point it at a `file://` checkout. The default ref follows the URL: `main` for a GitHub client repository, the pinned ref otherwise |
 | `BLUECUBE_CACHE_DIR` | `~/.bluecube/cache/sources` | Source cache; one slot per URL, shared with the SDK's source resolver |
 | `DEBUG` | unset | Print stack traces for unexpected errors |
 
-The SDK is cloned once into `<cache>/<first 16 hex of sha256(url)>`, fetched on later runs,
+The repository is cloned once into `<cache>/<first 16 hex of sha256(url)>`, fetched on later runs,
 checked out detached at the resolved commit, and recorded in `source.json` in the slot.
 
 ## Development
@@ -102,11 +133,19 @@ checked out detached at the resolved commit, and recorded in `source.json` in th
 npm ci
 npm test                                   # unit tests, offline
 BLUECUBE_INSTALLER_INTEGRATION=1 BLUECUBE_SDK_URL=file:///path/to/your/bluecube-coder npm run test:integration
+BLUECUBE_INSTALLER_INTEGRATION=1 BLUECUBE_INSTALLER_CLIENT_PACKAGE=1 BLUECUBE_SDK_URL=file:///path/to/pkg npm run test:integration
 ```
 
 The integration test needs a local checkout of the private SDK (read access to
 `BlueCube-AI/bluecube-coder`). It clones the committed `HEAD` of that checkout, so commit SDK
 changes first. The SDK repository also runs this test in its own CI against every change.
+
+With `BLUECUBE_INSTALLER_CLIENT_PACKAGE=1` the integration test runs against a client package
+instead. The URL must point at a git repository built with the SDK's `distribute.py build` from
+the fixture client `sample-a`: on `main`, a first commit with the entries `context`, `git` and
+`release_notes` (revision 1), which a branch named `previous` points at, then a second commit
+that republishes the same SDK version without `release_notes` (revision 2). The SDK's
+`installer-compat` workflow builds that repository and runs this mode.
 
 ## Release
 
@@ -135,7 +174,7 @@ publish waits for that approval.
 4. If the `npm` environment has a required reviewer, open the run for the tag in Actions,
    choose Review deployments and approve `npm`.
 5. Check `npm view @bluecube-ai/coder version`, and that
-   `npx @bluecube-ai/coder@latest --dry-run --agent claude-code --scope repo --categories git --yes`
+   `npx @bluecube-ai/coder@latest BlueCube-AI/bluecube-coder --dry-run --agent claude-code --scope repo --categories git --yes`
    prints `SDK <bluecube.sdkRef> at <sha>`.
 
 Version 0.1.0 was published by hand, because npm only offers trusted publishing for a package

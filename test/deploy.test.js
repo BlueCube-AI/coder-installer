@@ -15,8 +15,9 @@ const PROJECT_ONLY = projectOnlyCategories(JSON.parse(
 ));
 const NOT_AVAILABLE = 'Not available here: Project Memory, Status Line, Notifications & TTS, Session Logger, Damage Control. '
   + 'Run npx @bluecube-ai/coder inside a project to add them.';
+const GITHUB = wantedSource('https://github.com/BlueCube-AI/bluecube-coder.git', 'BlueCube-AI/bluecube-coder');
 const freshPlan = (selected, scope) => planPluginCommands({
-  selected, scope, wanted: wantedSource('https://github.com/BlueCube-AI/bluecube-coder.git'), migration: null, installed: [], pinned: {},
+  selected, scope, wanted: GITHUB, migration: null, installed: [], pinned: {},
 });
 
 describe('buildDeployArgs', () => {

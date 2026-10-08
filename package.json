@@ -1,7 +1,7 @@
 {
   "name": "@bluecube-ai/coder",
-  "version": "1.2.0",
-  "description": "Install BlueCube Coder tooling into Claude Code, Pi or OpenCode from a pinned SDK release",
+  "version": "2.0.0",
+  "description": "Install BlueCube Coder tooling into Claude Code, Pi or OpenCode from a client repository or a pinned SDK release",
   "type": "module",
   "bin": {
     "bluecube-coder": "bin/coder.js"

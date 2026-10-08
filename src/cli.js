@@ -22,7 +22,20 @@ export class CliError extends Error {
 
 const SCOPES = ['repo', 'homedir'];
 
+// `owner/name` of a GitHub repository; a trailing .git is dropped.
+const OWNER_NAME = /^([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9._-]+?)(?:\.git)?$/;
+// The GitHub HTTPS and SSH URL forms a repository slug is read from.
+const GITHUB_URLS = [
+  /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/i,
+  /^git@github\.com:([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?$/i,
+];
+// A URL with a scheme (https://, ssh://, file://) or the scp-like user@host:path form.
+const GIT_URL = /^([a-z][a-z0-9+.-]*:\/\/|[^@\s/]+@[^:\s/]+:)/i;
+// Each publish to a client repository is a new commit on main.
+const CLIENT_REF = 'main';
+
 const FLAGS = {
+  repo: { type: 'string' },
   global: { type: 'boolean', short: 'g' },
   scope: { type: 'string' },
   agent: { type: 'string' },
@@ -49,12 +62,49 @@ export function installDir({ scope, agent, cwd, target }) {
   return target ? path.join(target, agent.configDir) : `~/${agent.configDir}`;
 }
 
+export const isOwnerName = (value) => OWNER_NAME.test(value);
+
+/** The GitHub `owner/name` a git URL points at, or null for any other URL (file:// included). */
+export function repoSlugOf(url) {
+  for (const pattern of GITHUB_URLS) {
+    const match = pattern.exec(url);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function gitUrl(repo) {
+  const ownerName = OWNER_NAME.exec(repo);
+  if (ownerName) return `https://github.com/${ownerName[1]}/${ownerName[2]}.git`;
+  if (GIT_URL.test(repo)) return repo;
+  throw new CliError(EXIT.PREFLIGHT, messages.repoInvalid(repo));
+}
+
+/**
+ * Where a run installs from. `repo` is `owner/name`, a git URL or null; BLUECUBE_SDK_URL
+ * replaces its URL. The ref defaults to main for a client repository and to the pinned SDK
+ * ref for the SDK repository and any URL that names no GitHub repository; `ref` always wins.
+ * Without a repository sdkUrl is null and the run has to ask for one.
+ */
+export function repositorySource(repo, pkg, { env = {}, ref = null } = {}) {
+  const given = repo === null ? null : gitUrl(repo);
+  const sdkUrl = env.BLUECUBE_SDK_URL || given;
+  if (!sdkUrl) return { sdkUrl: null, repoSlug: null, ref };
+  const repoSlug = repoSlugOf(sdkUrl);
+  const isClient = repoSlug !== null && repoSlug.toLowerCase() !== messages.SDK_REPO.toLowerCase();
+  return { sdkUrl, repoSlug, ref: ref ?? (isClient ? CLIENT_REF : pkg.bluecube.sdkRef) };
+}
+
 export function parseCli(argv, pkg, { env = process.env, cwd = process.cwd(), homedir = os.homedir() } = {}) {
   let values;
+  let positionals;
   try {
-    ({ values } = parseArgs({ args: argv, options: FLAGS, allowPositionals: false, strict: true }));
+    ({ values, positionals } = parseArgs({ args: argv, options: FLAGS, allowPositionals: true, strict: true }));
   } catch (err) {
     throw new CliError(EXIT.PREFLIGHT, messages.flagError(err.message));
+  }
+  if (positionals.length > 1 || (positionals.length && values.repo !== undefined)) {
+    throw new CliError(EXIT.PREFLIGHT, messages.repoConflict);
   }
 
   if (values.scope !== undefined && !SCOPES.includes(values.scope)) {
@@ -79,17 +129,16 @@ export function parseCli(argv, pkg, { env = process.env, cwd = process.cwd(), ho
   return {
     help: Boolean(values.help),
     version: Boolean(values.version),
+    ...repositorySource(positionals[0] ?? values.repo ?? null, pkg, { env, ref: values.ref ?? null }),
     scope,
     scopeFlag,
     agent: values.agent ?? null,
     categories,
-    ref: values.ref ?? pkg.bluecube.sdkRef,
     target,
     targetGiven: target !== null,
     yes,
     dryRun: Boolean(values['dry-run']),
     nonInteractive: yes && Boolean(values.agent) && scope !== null && categories !== null,
-    sdkUrl: env.BLUECUBE_SDK_URL || pkg.bluecube.sdkRepo,
     cacheDir: env.BLUECUBE_CACHE_DIR || path.join(homedir, '.bluecube', 'cache', 'sources'),
     cwd,
     homedir,

@@ -43,15 +43,18 @@ export async function ensureUv({ exec, which, prompt, yes, platform = process.pl
   return installed;
 }
 
-/** Probe read access to the SDK repository without ever prompting for credentials. */
-export async function ensureGitAccess({ exec, which, url }) {
+/**
+ * Probe read access to the repository without ever prompting for credentials. `repo` is the
+ * GitHub owner/name the failure messages name, or null to name the SDK repository.
+ */
+export async function ensureGitAccess({ exec, which, url, repo = null }) {
   if (!which('git')) throw new CliError(EXIT.PREFLIGHT, messages.gitMissing);
   const result = await exec('git', ['ls-remote', '--exit-code', url, 'HEAD'], { timeoutMs: GIT_PROBE_TIMEOUT_MS });
   if (result.code !== 0 || result.timedOut) {
     const noAccess = !result.timedOut && NO_ACCESS_PATTERN.test(result.stderr ?? '');
     const message = noAccess
-      ? messages.gitNoAccess(url, result.stderr)
-      : messages.gitAccessFailed(url, result.stderr, result.timedOut);
+      ? messages.gitNoAccess(url, result.stderr, repo)
+      : messages.gitAccessFailed(url, result.stderr, result.timedOut, repo);
     throw new CliError(EXIT.PREFLIGHT, message);
   }
 }

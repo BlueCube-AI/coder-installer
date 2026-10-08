@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import * as clack from '@clack/prompts';
 
-import { CliError, EXIT, installDir } from './cli.js';
+import { CliError, EXIT, installDir, isOwnerName } from './cli.js';
 import * as messages from './messages.js';
 
 export const HIDDEN_GROUP = 'BlueCube Marketplace';
@@ -20,6 +20,7 @@ export function createPrompt() {
   return {
     confirm: async (opts) => unwrap(await clack.confirm(opts)),
     select: async (opts) => unwrap(await clack.select(opts)),
+    text: async (opts) => unwrap(await clack.text(opts)),
     groupMultiselect: async (opts) => unwrap(await clack.groupMultiselect(opts)),
   };
 }
@@ -29,7 +30,7 @@ export function createNonInteractivePrompt() {
   const refuse = async ({ message }) => {
     throw new CliError(EXIT.PREFLIGHT, messages.promptInNonInteractive(message));
   };
-  return { confirm: refuse, select: refuse, groupMultiselect: refuse };
+  return { confirm: refuse, select: refuse, text: refuse, groupMultiselect: refuse };
 }
 
 function shorten(text) {
@@ -40,6 +41,28 @@ function shorten(text) {
 function withBadge(label, experimental) {
   if (!experimental || /experimental/i.test(label)) return label;
   return `${label} (${messages.experimentalBadge})`;
+}
+
+/**
+ * Ask where to install from: the developer's client repository (owner/name), or the full SDK
+ * for BlueCube staff. Returns the repository as owner/name or the SDK's git URL.
+ */
+export async function chooseRepository({ prompt, sdkRepo }) {
+  const choice = await prompt.select({
+    message: messages.repoPrompt,
+    options: [
+      { value: 'client', label: messages.repoClientLabel },
+      { value: 'sdk', label: messages.repoSdkLabel },
+    ],
+    initialValue: 'client',
+  });
+  if (choice === 'sdk') return sdkRepo;
+  const repo = await prompt.text({
+    message: messages.repoNamePrompt,
+    placeholder: messages.repoNamePlaceholder,
+    validate: (value) => (isOwnerName((value ?? '').trim()) ? undefined : messages.repoNameInvalid),
+  });
+  return repo.trim();
 }
 
 export function buildHarnessOptions({ detected, agents, ref }) {
@@ -134,8 +157,9 @@ export function projectOnlyCategories(catalog) {
 /**
  * Flat, ordered option list for the category picker. Categories come grouped by the first
  * appearance of their group, then in catalog order; the plugin marketplace group comes last.
+ * `selectAll` pre-selects every option: a client package offers only what the client gets.
  */
-export function buildOptions(catalog, scope, marketplace) {
+export function buildOptions(catalog, scope, marketplace, { selectAll = false } = {}) {
   const byGroup = new Map();
   for (const cat of catalog.categories) {
     if (!cat.scope.includes(scope) || cat.group === HIDDEN_GROUP) continue;
@@ -146,7 +170,7 @@ export function buildOptions(catalog, scope, marketplace) {
       label: scope === 'repo' && !cat.scope.includes('homedir') ? `${label} (${messages.projectOnlyBadge})` : label,
       hint: shorten(cat.desc),
       group: cat.group,
-      selected: Boolean(cat.default),
+      selected: selectAll || Boolean(cat.default),
     });
   }
   const options = [...byGroup.values()].flat();
@@ -157,7 +181,7 @@ export function buildOptions(catalog, scope, marketplace) {
         label: plugin.name,
         hint: shorten(plugin.description),
         group: messages.pluginsGroup,
-        selected: false,
+        selected: selectAll,
       });
     }
   }
