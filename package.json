@@ -29,6 +29,6 @@
   },
   "bluecube": {
     "sdkRepo": "https://github.com/BlueCube-AI/bluecube-coder.git",
-    "sdkRef": "v1.1.0"
+    "sdkRef": "v1.2.0"
   }
 }

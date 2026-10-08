@@ -5,9 +5,10 @@ file. The SDK has its own changelog.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-08
 
 ### Changed
+- The SDK pin moves to `v1.2.0`, the first SDK release with client packages.
 - **Breaking:** a run needs a repository. A non-interactive run (`--yes` with `--agent`, `--scope`
   or `-g`, and `--categories`) without one now exits 2 and prints
   `npx @bluecube-ai/coder <owner/client-repo>` instead of installing the full SDK.
