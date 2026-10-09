@@ -14,11 +14,11 @@ import {
   confirmRepoTarget, createNonInteractivePrompt, createPrompt, projectOnlyCategories, readMarketplace,
 } from './picker.js';
 import {
-  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, unofferedPlugins,
-  wantedSource,
+  aheadPlugins, claudeCandidates, conflictingSource, installedPluginNames, planMigration, planPluginCommands,
+  runPluginCommands, unofferedPlugins, wantedSource,
 } from './plugins.js';
 import { ensureGitAccess, ensureUv } from './preflight.js';
-import { claudeConfigDir, installedPlugins, readRegistration, registryPaths } from './registry.js';
+import { claudeConfigDir, installedPlugins, knownSource, readRegistration, registryPaths } from './registry.js';
 import { installedBlocks, nextSteps, printSummary } from './report.js';
 import { resolveSource } from './source.js';
 
@@ -29,7 +29,7 @@ export function defaultDeps() {
   // Windows). `resolved` lets preflight point `uv` at a fresh install that is not on PATH yet.
   const resolved = {};
   return {
-    exec: (cmd, args, opts) => run(resolved[cmd] ?? which(cmd) ?? cmd, args, opts),
+    exec: (cmd, args, opts) => run(resolved[cmd] ?? (path.isAbsolute(cmd) ? cmd : which(cmd)) ?? cmd, args, opts),
     which,
     resolved,
     prompt: createPrompt(),
@@ -46,7 +46,8 @@ export function defaultDeps() {
 const NO_PLUGINS = { plan: [], migration: null, paths: null, wanted: null, installed: [], pinned: {} };
 
 // Read the Claude Code plugin registry and plan the plugin steps. Only claude-code runs that
-// picked a plugin get here: Pi and OpenCode never read or write the registry.
+// picked a plugin get here: Pi and OpenCode never read or write the registry. A repo run installs
+// for its project and never moves the machine's marketplace; only a home run migrates it.
 function planPlugins({ deps, options, scope, target, selected, marketplace }) {
   const wanted = wantedSource(options.sdkUrl, options.repoSlug);
   if (!wanted) {
@@ -59,6 +60,15 @@ function planPlugins({ deps, options, scope, target, selected, marketplace }) {
   const registration = readRegistration(registry);
   const installed = installedPlugins(registry);
   const pinned = Object.fromEntries((marketplace?.plugins ?? []).map((plugin) => [plugin.name, plugin.version]));
+  if (scope === 'repo') {
+    const inUse = conflictingSource({ registration, known: knownSource(paths), wanted });
+    if (inUse) {
+      deps.log(messages.pluginsProjectConflict(inUse, wanted.kind === 'github' ? wanted.repo : wanted.path));
+      return NO_PLUGINS;
+    }
+    const plan = planPluginCommands({ selected, scope, wanted, migration: null, installed, pinned });
+    return { plan, migration: null, paths, wanted, installed, pinned };
+  }
   const migration = planMigration({ registration, installed, wanted, selected });
   const unoffered = unofferedPlugins({ migration, marketplace });
   if (unoffered.length) {
@@ -66,7 +76,7 @@ function planPlugins({ deps, options, scope, target, selected, marketplace }) {
     deps.log(messages.pluginsNotOffered(source, unoffered, migration.reason));
     return NO_PLUGINS;
   }
-  const plan = planPluginCommands({ selected, wanted, migration, installed, pinned });
+  const plan = planPluginCommands({ selected, scope, wanted, migration, installed, pinned });
   return { plan, migration, paths, wanted, installed, pinned };
 }
 
@@ -136,7 +146,7 @@ async function install(given, deps) {
   const pluginPlan = agent.name === 'claude-code' && plugins.length
     ? planPlugins({ deps, options, scope, target, selected: plugins, marketplace })
     : NO_PLUGINS;
-  const claudePresent = Boolean(whichFn('claude'));
+  const claudePaths = claudeCandidates({ which: whichFn, env: deps.env, homedir: deps.homedir, platform: deps.platform });
   const { results: pluginResults, outcome } = await runPluginCommands({
     exec,
     plan: pluginPlan.plan,
@@ -145,13 +155,13 @@ async function install(given, deps) {
     wanted: pluginPlan.wanted,
     dryRun: options.dryRun,
     target,
-    claudePresent,
+    claudePaths,
     log,
   });
   if (options.dryRun) return EXIT.OK;
 
   // Without claude the installed versions are not acted on, so they are not reported either.
-  if (!pluginPlan.migration && claudePresent) outcome.ahead = aheadPlugins(pluginPlan);
+  if (!pluginPlan.migration && claudePaths.length) outcome.ahead = aheadPlugins(pluginPlan);
   const categoryLabels = categories.map((id) => catalog.categories.find((cat) => cat.id === id).label);
   // No marketplace source (a Pi or OpenCode run, or a skipped plugin step): no plugins.
   const pluginNames = pluginPlan.wanted

@@ -161,8 +161,8 @@ export function projectOnlyCategories(catalog) {
  * Flat, ordered option list for the category picker. Categories come grouped by the first
  * appearance of their group, then in catalog order; the plugin marketplace group comes last.
  * A client package offers only what the client gets, so its pre-selection follows the scope: a
- * repo run starts with every category but the opt-in ones, a home run with every plugin. Plugins
- * install for every project, so a project install leaves them alone unless picked.
+ * repo run starts with every category but the opt-in ones, a home run with every plugin. A
+ * project install leaves the plugins unticked; one picked there installs for that project only.
  */
 export function buildOptions(catalog, scope, marketplace, { clientPackage = false } = {}) {
   const byGroup = new Map();

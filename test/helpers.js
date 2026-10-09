@@ -85,7 +85,7 @@ export function catalogExec({
   deployCode = 0, claude = () => ({}), fixture = 'catalog-claude-code.json', slotFiles = {},
 } = {}) {
   return fakeExec(async (cmd, args) => {
-    if (cmd === 'claude') return args.includes('--help') ? { stdout: '--scope --sparse' } : claude(args);
+    if (path.basename(cmd) === 'claude') return args.includes('--help') ? { stdout: '--scope --sparse' } : claude(args);
     if (cmd === 'git' && args[0] === 'clone') {
       fs.mkdirSync(path.join(args[2], '.git'), { recursive: true });
       for (const [name, data] of Object.entries(slotFiles)) writeJson(path.join(args[2], name), data);

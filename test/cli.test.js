@@ -398,6 +398,57 @@ describe('exit mapping', () => {
     assert.ok(!d.log.lines.some((line) => /plugin/i.test(line)));
     assert.deepEqual(fs.readFileSync(settings), before);
   });
+
+  describe('a repo run that picks a plugin', () => {
+    const REPO_PLUGIN = ['--agent', 'claude-code', '--scope', 'repo', '--categories', 'git,plugin:bluecube-sdlc', '--yes'];
+    const isClaude = (call) => path.basename(call.cmd) === 'claude';
+
+    it('should install the plugin for this project only and list it there', async () => {
+      const { configDir } = registryFixture();
+      const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+      d.exec = catalogExec({ slotFiles: SDLC_MARKETPLACE });
+
+      assert.equal(await main([CLIENT, ...REPO_PLUGIN], d), EXIT.OK);
+
+      assert.deepEqual(d.exec.calls.filter((c) => isClaude(c) && !c.args.includes('--help')).map((c) => c.args), [
+        ['plugin', 'marketplace', 'add', CLIENT, '--sparse', '.claude-plugin', 'plugins', '--scope', 'project'],
+        ['plugin', 'install', 'bluecube-sdlc@bluecube-coder', '--scope', 'project'],
+      ]);
+      const heading = d.log.lines.indexOf(`Installed for this project (${path.join('/w', '.claude')}):`);
+      assert.deepEqual(d.log.lines.slice(heading + 1, heading + 3), ['  - Git Commands', '  - bluecube-sdlc']);
+      assert.ok(!d.log.lines.some((line) => line.startsWith('Installed for every project')));
+    });
+
+    it('should leave the plugins alone and say why when the machine marketplace comes from another source', async () => {
+      const { configDir } = registryFixture();
+      const settings = path.join(configDir, 'settings.json');
+      writeJson(settings, { extraKnownMarketplaces: { 'bluecube-coder': { source: { source: 'github', repo: SDK } } } });
+      const before = fs.readFileSync(settings);
+      const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+      d.exec = catalogExec({ slotFiles: SDLC_MARKETPLACE });
+
+      assert.equal(await main([CLIENT, ...REPO_PLUGIN], d), EXIT.OK);
+
+      assert.ok(!d.exec.calls.some(isClaude));
+      assert.ok(d.log.lines.includes(messages.pluginsProjectConflict(SDK, CLIENT)));
+      assert.ok(!d.log.lines.includes('  - bluecube-sdlc'));
+      assert.deepEqual(fs.readFileSync(settings), before);
+    });
+
+    it('should leave a legacy registration and its copies for a home run to migrate', async () => {
+      const { settings, sdlcDir, configDir } = legacyHome();
+      const before = fs.readFileSync(settings);
+      const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+      d.exec = catalogExec({ slotFiles: SDLC_MARKETPLACE });
+
+      assert.equal(await main([SDK, ...REPO_PLUGIN], d), EXIT.OK);
+
+      assert.ok(!d.exec.calls.some(isClaude));
+      assert.ok(d.log.lines.includes(messages.pluginsProjectConflict(messages.legacySourceLabel, SDK)));
+      assert.deepEqual(fs.readFileSync(settings), before);
+      assert.ok(fs.existsSync(sdlcDir));
+    });
+  });
 });
 
 // A home config directory with bluecube-sdlc enabled at user scope through deploy.py's legacy registration.

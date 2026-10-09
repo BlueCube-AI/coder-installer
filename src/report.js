@@ -38,18 +38,14 @@ export function nextSteps({ agent, scope, categories, pluginResults, outcome = {
   return lines;
 }
 
-/** What the run installed, as [{heading, items}]; plugins always sit under every project. */
+/** What the run installed, as [{heading, items}]; plugins install at the run's own scope. */
 export function installedBlocks({ scope, agent, target, targetGiven, categoryLabels, pluginNames }) {
-  const blocks = scope === 'repo'
-    ? [
-      { heading: messages.installedHere(installDir({ scope: 'repo', agent, target })), items: categoryLabels },
-      { heading: messages.installedEverywhere(installDir({ scope: 'homedir', agent, target: null })), items: pluginNames },
-    ]
-    : [{
-      heading: messages.installedEverywhere(installDir({ scope: 'homedir', agent, target: targetGiven ? target : null })),
-      items: [...categoryLabels, ...pluginNames],
-    }];
-  return blocks.filter(({ items }) => items.length);
+  const items = [...categoryLabels, ...pluginNames];
+  if (items.length === 0) return [];
+  const heading = scope === 'repo'
+    ? messages.installedHere(installDir({ scope: 'repo', agent, target }))
+    : messages.installedEverywhere(installDir({ scope: 'homedir', agent, target: targetGiven ? target : null }));
+  return [{ heading, items }];
 }
 
 export function printSummary(blocks, lines, log) {
