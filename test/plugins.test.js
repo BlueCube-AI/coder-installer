@@ -340,8 +340,8 @@ describe('conflictingSource', () => {
 
 describe('claudeCandidates', () => {
   // Answers like `which` for a fixed set of installed files.
-  const whichIn = (files) => (name, { pathEnv }) => {
-    const file = path.posix.join(pathEnv, name);
+  const whichIn = (files) => (name, { pathEnv, platform }) => {
+    const file = (platform === 'win32' ? path.win32 : path.posix).join(pathEnv, name);
     return files.includes(file) ? file : null;
   };
 
@@ -351,6 +351,15 @@ describe('claudeCandidates', () => {
 
     assert.deepEqual(claudeCandidates({ which, env, homedir: '/h', platform: 'linux' }), [
       '/w/node_modules/.bin/claude', '/usr/local/bin/claude', '/h/.local/bin/claude', '/h/.claude/local/claude',
+    ]);
+  });
+
+  it('should split PATH and join the native locations the Windows way on win32', () => {
+    const which = whichIn(['C:\\npm\\claude', 'C:\\Users\\dev\\.local\\bin\\claude']);
+    const env = { Path: 'C:\\Windows;C:\\npm' };
+
+    assert.deepEqual(claudeCandidates({ which, env, homedir: 'C:\\Users\\dev', platform: 'win32' }), [
+      'C:\\npm\\claude', 'C:\\Users\\dev\\.local\\bin\\claude',
     ]);
   });
 

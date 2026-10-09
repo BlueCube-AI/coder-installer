@@ -40,9 +40,9 @@ const pluginScopeFor = (scope) => (scope === 'repo' ? PROJECT_SCOPE : USER_SCOPE
  * invisible here, so the first claude on PATH can be an old copy the developer's shell never runs.
  */
 export function claudeCandidates({ which, env, homedir, platform }) {
-  const delimiter = platform === 'win32' ? ';' : ':';
-  const pathDirs = (env?.PATH ?? env?.Path ?? '').split(delimiter);
-  const nativeDirs = NATIVE_CLAUDE_DIRS.map((parts) => path.join(homedir, ...parts));
+  const lib = platform === 'win32' ? path.win32 : path.posix;
+  const pathDirs = (env?.PATH ?? env?.Path ?? '').split(lib.delimiter);
+  const nativeDirs = NATIVE_CLAUDE_DIRS.map((parts) => lib.join(homedir, ...parts));
   const found = [...pathDirs, ...nativeDirs].filter(Boolean).map((dir) => which('claude', { pathEnv: dir, platform }));
   return [...new Set(found.filter(Boolean))];
 }
