@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import * as messages from './messages.js';
 import {
-  MARKETPLACE_NAME, compareVersions, restoreRegistry, snapshotRegistry, stripRegistration,
+  MARKETPLACE_NAME, compareVersions, parkMarketplace, restoreMarketplace, restoreRegistry, snapshotRegistry,
+  stripRegistration,
 } from './registry.js';
 
 export { MARKETPLACE_NAME };
@@ -74,6 +75,16 @@ export function planMigration({ registration, installed, wanted, selected }) {
     if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: PLUGIN_SCOPE });
   }
   return { reason: legacy ? 'legacy' : 'switch', carried, leftoverDirs: legacy?.leftoverDirs ?? [] };
+}
+
+/**
+ * Carried plugins the wanted marketplace does not list, such as a full SDK plugin on a move to a
+ * client repository. Their reinstall would fail and roll the whole migration back.
+ */
+export function unofferedPlugins({ migration, marketplace }) {
+  if (!migration) return [];
+  const offered = new Set((marketplace?.plugins ?? []).map(({ name }) => name));
+  return migration.carried.filter(({ name }) => !offered.has(name));
 }
 
 const installStep = ({ name, scope }) => ({
@@ -152,11 +163,15 @@ function listsMarketplace(stdout) {
 const runStep = (exec, step, target) => exec('claude', step.args, { cwd: target, stdio: 'inherit' });
 
 // All or nothing: on the first failing command the four registry files go back to the
-// snapshot, so the plugins keep working from the old registration.
+// snapshot and the old marketplace copy goes back in place, so the plugins keep working from
+// the old registration.
 async function runMigration({ exec, plan, migration, paths, wanted, target, log, outcome }) {
   const snapshot = snapshotRegistry(paths);
+  let parked;
   try {
     stripRegistration({ paths, carried: migration.carried, target });
+    // Last, so a failure above leaves the copy where it is.
+    parked = parkMarketplace(paths);
   } catch (err) {
     restoreRegistry(snapshot);
     throw err;
@@ -170,6 +185,7 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
       continue;
     }
     restoreRegistry(snapshot);
+    restoreMarketplace(paths, parked);
     const command = formatClaudeCommand(step.args);
     log(messages.pluginFailed(command, result.code));
     outcome.rolledBack = { command, code: result.code };
@@ -178,7 +194,7 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
     return { results, outcome };
   }
 
-  for (const dir of migration.leftoverDirs) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of [...migration.leftoverDirs, parked].filter(Boolean)) fs.rmSync(dir, { recursive: true, force: true });
   if (migration.reason === 'legacy') outcome.migrated = plan.filter((step) => step.kind === 'install').length;
   if (wanted.kind === 'directory') outcome.localSource = wanted.path;
   return { results, outcome };
@@ -188,22 +204,29 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
  * Run the plan in `target`. Failures are collected, not thrown, so the deploy result still
  * stands. Returns {results, outcome}: one {step, status, code?} per step (ok, failed, skipped,
  * outdated when the claude CLI lacks an option the plan needs, rolled-back, or dry-run), and
- * the report outcome (migrated, rolledBack, localSource, updated; the caller fills ahead).
+ * the report outcome (migrated, rolledBack, migrationPending, localSource, updated; the caller
+ * fills ahead).
  */
 export async function runPluginCommands({ exec, plan, migration, paths, wanted, dryRun, target, claudePresent, log }) {
-  const outcome = { migrated: null, rolledBack: null, localSource: null, updated: [], ahead: [] };
+  const outcome = {
+    migrated: null, rolledBack: null, migrationPending: false, localSource: null, updated: [], ahead: [],
+  };
   if (plan.length === 0) return { results: [], outcome };
   if (dryRun) {
     if (migration) log(messages.migrationDetected(migration.reason, migration.carried));
     for (const step of plan) log(formatClaudeCommand(step.args));
     return { results: plan.map((step) => ({ step, status: 'dry-run' })), outcome };
   }
+  // Only the installer can strip the old registration, so a skipped migration is not left to
+  // by-hand commands: `marketplace add` refuses while settings declare another source.
   if (!claudePresent) {
     log(messages.pluginSkippedNoClaude);
+    outcome.migrationPending = Boolean(migration);
     return { results: plan.map((step) => ({ step, status: 'skipped' })), outcome };
   }
   if (!(await supportsPluginOptions({ exec, target }))) {
     log(messages.pluginClaudeTooOld);
+    outcome.migrationPending = Boolean(migration);
     return { results: plan.map((step) => ({ step, status: 'outdated' })), outcome };
   }
   if (migration) return runMigration({ exec, plan, migration, paths, wanted, target, log, outcome });

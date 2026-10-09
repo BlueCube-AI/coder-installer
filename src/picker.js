@@ -9,6 +9,9 @@ import * as messages from './messages.js';
 export const HIDDEN_GROUP = 'BlueCube Marketplace';
 export const PLUGIN_PREFIX = 'plugin:';
 const HINT_MAX = 90;
+// Notifications pop up and speak through TTS whenever Claude needs attention, so a client package
+// leaves them for the developer to pick.
+const CLIENT_OPT_IN = ['notification'];
 
 function unwrap(value) {
   if (clack.isCancel(value)) throw new CliError(EXIT.CANCELLED, messages.cancelled);
@@ -157,9 +160,11 @@ export function projectOnlyCategories(catalog) {
 /**
  * Flat, ordered option list for the category picker. Categories come grouped by the first
  * appearance of their group, then in catalog order; the plugin marketplace group comes last.
- * `selectAll` pre-selects every option: a client package offers only what the client gets.
+ * A client package offers only what the client gets, so its pre-selection follows the scope: a
+ * repo run starts with every category but the opt-in ones, a home run with every plugin. Plugins
+ * install for every project, so a project install leaves them alone unless picked.
  */
-export function buildOptions(catalog, scope, marketplace, { selectAll = false } = {}) {
+export function buildOptions(catalog, scope, marketplace, { clientPackage = false } = {}) {
   const byGroup = new Map();
   for (const cat of catalog.categories) {
     if (!cat.scope.includes(scope) || cat.group === HIDDEN_GROUP) continue;
@@ -170,7 +175,7 @@ export function buildOptions(catalog, scope, marketplace, { selectAll = false } 
       label: scope === 'repo' && !cat.scope.includes('homedir') ? `${label} (${messages.projectOnlyBadge})` : label,
       hint: shorten(cat.desc),
       group: cat.group,
-      selected: selectAll || Boolean(cat.default),
+      selected: clientPackage ? scope === 'repo' && !CLIENT_OPT_IN.includes(cat.id) : Boolean(cat.default),
     });
   }
   const options = [...byGroup.values()].flat();
@@ -181,7 +186,7 @@ export function buildOptions(catalog, scope, marketplace, { selectAll = false } 
         label: plugin.name,
         hint: shorten(plugin.description),
         group: messages.pluginsGroup,
-        selected: selectAll,
+        selected: clientPackage && scope === 'homedir',
       });
     }
   }

@@ -20,11 +20,15 @@ export function nextSteps({ agent, scope, categories, pluginResults, outcome = {
   if (scope === 'repo' && categories.some((id) => HOOK_CATEGORIES.includes(id))) {
     lines.push(messages.nextStepHooks(`${agent.configDir}/settings.json`));
   }
+  // A by-hand `marketplace add` would hit the old registration: after a rollback the rollback
+  // line explains the state, and a pending migration needs the installer itself.
+  if (outcome.migrationPending) {
+    lines.push(messages.migrationPending);
+    return lines;
+  }
   if (pluginResults.some(({ status }) => status === 'outdated')) {
     lines.push(messages.nextStepUpdateClaude);
   }
-  // After a rollback the by-hand commands would hit the same legacy conflict; the rollback
-  // line explains the state instead.
   if (outcome.rolledBack) return lines;
   for (const { step, status } of pluginResults) {
     if (PENDING_PLUGIN_STATUSES.includes(status)) {

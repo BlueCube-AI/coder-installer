@@ -17,6 +17,10 @@ const CTX = { env: {}, cwd: '/work/project', homedir: '/home/dev' };
 const SDK = 'BlueCube-AI/bluecube-coder';
 const CLIENT = 'BlueCube-AI/acme-coder';
 const CLIENT_URL = 'https://github.com/BlueCube-AI/acme-coder.git';
+// The SDK slot's plugin marketplace, so the picker offers bluecube-sdlc.
+const SDLC_MARKETPLACE = {
+  '.claude-plugin/marketplace.json': { name: 'bluecube-coder', plugins: [{ name: 'bluecube-sdlc', version: '1.1.1' }] },
+};
 
 describe('parseCli', () => {
   it('should default the ref to bluecube.sdkRef for the SDK repository', () => {
@@ -359,14 +363,27 @@ describe('exit mapping', () => {
     const { settings, sdlcDir, configDir } = legacyHome();
     const before = fs.readFileSync(settings);
     const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
-    d.exec = catalogExec({ claude: (args) => (args[1] === 'install' ? { code: 1 } : {}) });
+    d.exec = catalogExec({ claude: (args) => (args[1] === 'install' ? { code: 1 } : {}), slotFiles: SDLC_MARKETPLACE });
 
-    assert.equal(await main([SDK, '--agent', 'claude-code', '-g', '--categories', 'git', '--yes'], d), EXIT.DEPLOY_FAILED);
+    const argv = [SDK, '--agent', 'claude-code', '-g', '--categories', 'git,plugin:bluecube-sdlc', '--yes'];
+    assert.equal(await main(argv, d), EXIT.DEPLOY_FAILED);
 
     const rollback = '  - Plugin migration rolled back, plugins unchanged: claude plugin install bluecube-sdlc@bluecube-coder --scope user exited with code 1';
     assert.ok(d.log.lines.indexOf(rollback) > d.log.lines.indexOf('Next steps'));
     assert.deepEqual(fs.readFileSync(settings), before);
     assert.ok(fs.existsSync(sdlcDir));
+  });
+
+  it('should leave the plugin registry alone on a claude-code run that picks no plugin', async () => {
+    const { settings, configDir } = legacyHome();
+    const before = fs.readFileSync(settings);
+    const d = deps({ env: { BLUECUBE_CACHE_DIR: await tmpCache(), CLAUDE_CONFIG_DIR: configDir } });
+    d.exec = catalogExec({ slotFiles: SDLC_MARKETPLACE });
+
+    assert.equal(await main([SDK, '--agent', 'claude-code', '-g', '--categories', 'git', '--yes'], d), EXIT.OK);
+
+    assert.ok(!d.exec.calls.some((c) => c.cmd === 'claude'));
+    assert.deepEqual(fs.readFileSync(settings), before);
   });
 
   it('should leave the plugin registry alone on a pi run', async () => {

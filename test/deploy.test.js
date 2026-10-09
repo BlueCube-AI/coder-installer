@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import { buildDeployArgs, runDeploy } from '../src/deploy.js';
+import * as messages from '../src/messages.js';
 import { projectOnlyCategories } from '../src/picker.js';
 import { planPluginCommands, wantedSource } from '../src/plugins.js';
 import { installedBlocks, nextSteps, printSummary } from '../src/report.js';
@@ -148,6 +149,20 @@ describe('nextSteps', () => {
       outcome: { rolledBack: { command, code: 1 } },
     });
     assert.ok(!lines.some((line) => line.startsWith('Run by hand')));
+  });
+
+  it('should ask for an installer rerun instead of by-hand commands while a marketplace move is pending', () => {
+    const plan = freshPlan(['bluecube-sdlc'], 'homedir');
+    for (const status of ['skipped', 'outdated']) {
+      const lines = nextSteps({
+        agent: CLAUDE,
+        scope: 'homedir',
+        categories: [],
+        pluginResults: plan.map((step) => ({ step, status })),
+        outcome: { migrationPending: true },
+      });
+      assert.deepEqual(lines.slice(1), [messages.migrationPending], status);
+    }
   });
 
   it('should render under a Next steps heading', () => {

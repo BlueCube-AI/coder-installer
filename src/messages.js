@@ -180,10 +180,24 @@ const pluginList = (carried) => carried.map(({ name, scope }) => `${name} (${sco
 export const migrationDetected = (reason, carried) => (reason === 'legacy'
   ? `Legacy plugin registration found: ${pluginList(carried)}; it will be replaced by the GitHub marketplace`
   : `Plugin marketplace source will change: ${pluginList(carried)} will be reinstalled`);
+// The claude CLI cannot see a legacy registration, so it cannot uninstall from one either.
+export const pluginsNotOffered = (source, entries, reason) => {
+  const names = [...new Set(entries.map(({ name }) => name))];
+  const them = names.length === 1 ? 'it' : 'them';
+  const uninstall = entries
+    .map(({ name, scope }) => `claude plugin uninstall ${name}@bluecube-coder --scope ${scope}`)
+    .join(' and ');
+  const hint = reason === 'legacy' ? '' : ` To move anyway, uninstall ${them} first: ${uninstall}`;
+  return `Plugins left unchanged: ${source} does not offer ${joinNames(names)}, and moving the `
+    + `bluecube-coder marketplace there would remove ${them}.${hint}`;
+};
 export const migrated = (count) =>
   `Migrated ${count} ${count === 1 ? 'plugin' : 'plugins'} from a local checkout to the GitHub marketplace`;
 export const migrationRolledBack = (command, code) =>
   `Plugin migration rolled back, plugins unchanged: ${command} exited with code ${code}`;
+export const migrationPending = 'Run the installer again once `claude` is on PATH and up to date '
+  + '(`claude update`): the bluecube-coder plugin marketplace has to move first, and a claude '
+  + 'command typed by hand cannot move it';
 export const pluginsLocalSource = (checkout) =>
   `Plugins load from the local checkout at ${checkout}; this machine is off the pinned release`;
 export const pluginsUpdated = (names) => `Updated to the pinned release: ${names.join(', ')}`;

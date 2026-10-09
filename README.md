@@ -61,35 +61,45 @@ to run with your repository. `BLUECUBE_SDK_URL` counts as a repository.
 
 `uv run sdk/deploy.py --list-categories --agent <name>` in an SDK checkout lists the category ids.
 
-Claude Code plugins (`kb-knowledge-graph`, `bluecube-sdlc`) install through the `claude` CLI:
+Claude Code plugins (`kb-knowledge-graph`, `bluecube-sdlc`) install through the `claude` CLI
+when you pick at least one:
 `claude plugin marketplace add <owner/repo> --sparse .claude-plugin plugins` for the repository
 you install from, then
-`claude plugin install <name>@bluecube-coder --scope user` on every run, so each plugin is
-installed once for every project. A plugin already installed for every project is updated,
-never installed again. Older Claude Code releases lack `--sparse` or `--scope`. The installer
-checks first and, when they are missing, installs everything else and asks you to run
-`claude update` and then the plugin commands it prints.
+`claude plugin install <name>@bluecube-coder --scope user`, so each plugin is installed once for
+every project. A plugin already installed for every project is updated, never installed again.
+A run that picks no plugin leaves the plugins and their marketplace exactly as they are. Older
+Claude Code releases lack `--sparse` or `--scope`. The installer checks first and, when they are
+missing, installs everything else and asks you to run `claude update` and then the plugin
+commands it prints.
 
 A machine where the SDK's `deploy.py` registered the plugins from local copies carries a legacy
 `bluecube-coder` marketplace that blocks the GitHub one, so the installer replaces that
 registration with the GitHub marketplace without asking. Every plugin is reinstalled at user
 scope, so it is available in every project, and the leftover local copies are deleted. If any
-`claude` command of that move fails, the plugin registry files are restored as they were, the
-report names the failing command and the installer exits 1.
+`claude` command of that move fails, the plugin registry files and Claude Code's copy of the
+marketplace are restored as they were, the report names the failing command and the installer
+exits 1. When `claude` is missing or too old for such a move, the report asks you to run the
+installer again once it is fixed: `claude plugin marketplace add` typed by hand is refused while
+the settings still declare the old source.
 
 Rerunning the installer updates the plugins that are behind the pinned release and names them,
 and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout instead of GitHub.
 The marketplace is always named `bluecube-coder`, so moving a machine between the full SDK and a
-client repository reinstalls its plugins from the new source the same way. For a URL that is
-neither GitHub nor `file://` the installer has no marketplace to add: it skips the plugins and
-says so.
+client repository reinstalls its plugins from the new source the same way. When the new source
+does not offer a plugin installed from the old one, such as `bluecube-gauntlet` on a move to a
+client repository, the move would lose it: the installer leaves the plugins as they are, names
+that plugin and the command to uninstall it. For a URL that is neither GitHub nor `file://` the
+installer has no marketplace to add: it skips the plugins and says so.
 
 ## Client packages
 
 A client repository holds a client package: only the items BlueCube picked for that client, and
 a `client-package.json` with the package version and revision.
 
-- The picker lists only the package's categories and plugins, all pre-selected.
+- The picker lists only the package's categories and plugins. A repo run starts with every
+  category selected except Notifications & TTS, which you pick yourself, and no plugin, since
+  plugins install for every project. A home run (`-g`) starts with every plugin selected and no
+  category.
 - When the install target holds an older package, the run says so before it installs the new
   one: "A newer version of your BlueCube Coder package is available: 1.2.0 (revision 1). This
   install has 1.1.0 (revision 3)." Running the installer again is the upgrade.
