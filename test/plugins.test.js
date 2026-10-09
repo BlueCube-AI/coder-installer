@@ -6,13 +6,14 @@ import { pathToFileURL } from 'node:url';
 
 import * as messages from '../src/messages.js';
 import {
-  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, sourceMatches,
-  unofferedPlugins, wantedSource,
+  aheadPlugins, claudeCandidates, conflictingSource, installedPluginNames, planMigration, planPluginCommands,
+  runPluginCommands, sourceMatches, unofferedPlugins, wantedSource,
 } from '../src/plugins.js';
 import { installedPlugins, readRegistration, registryPaths } from '../src/registry.js';
 import { collectLog, fakeExec, legacyDeclaration, registryFixture, writeJson } from './helpers.js';
 
 const ADD = ['plugin', 'marketplace', 'add', 'BlueCube-AI/bluecube-coder', '--sparse', '.claude-plugin', 'plugins'];
+const PROJECT_ADD = [...ADD, '--scope', 'project'];
 const LIST = ['plugin', 'marketplace', 'list', '--json'];
 const HELP_ADD = ['plugin', 'marketplace', 'add', '--help'];
 const HELP_INSTALL = ['plugin', 'install', '--help'];
@@ -29,6 +30,9 @@ const NO_LEGACY = { declared: null, legacy: null };
 // Answers the option checks like a current Claude Code and everything else with `handler`
 const currentClaude = (handler = () => ({})) => (cmd, args, opts) =>
   (args.includes('--help') ? { stdout: '  --scope <scope>\n  --sparse <paths...>' } : handler(cmd, args, opts));
+// Answers like a Claude Code from before the plugin options
+const OLD_HELP = { stdout: 'Options:\n  -h, --help' };
+const oldClaude = (cmd, args) => (args.includes('--version') ? { stdout: '1.0.31 (Claude Code)\n' } : OLD_HELP);
 
 const install = (name, scope) => ['plugin', 'install', `${name}@bluecube-coder`, '--scope', scope];
 const update = (name, scope) => ['plugin', 'update', `${name}@bluecube-coder`, '--scope', scope];
@@ -241,24 +245,30 @@ describe('pluginsNotOffered', () => {
 });
 
 describe('planPluginCommands', () => {
-  it('should add the marketplace, then install each plugin at user scope for repo', () => {
+  it('should add the marketplace for this project, then install each plugin at project scope for repo', () => {
     assert.deepEqual(fresh(['kb-knowledge-graph', 'bluecube-sdlc'], 'repo').map((step) => step.args), [
-      ADD,
-      install('kb-knowledge-graph', 'user'),
-      install('bluecube-sdlc', 'user'),
+      PROJECT_ADD,
+      install('kb-knowledge-graph', 'project'),
+      install('bluecube-sdlc', 'project'),
     ]);
   });
 
-  it('should install at user scope for homedir', () => {
-    assert.deepEqual(fresh(['bluecube-sdlc'], 'homedir')[1].args, install('bluecube-sdlc', 'user'));
+  it('should add the marketplace and install at user scope for homedir', () => {
+    assert.deepEqual(fresh(['bluecube-sdlc'], 'homedir').map((step) => step.args), [ADD, install('bluecube-sdlc', 'user')]);
   });
 
   it('should plan nothing without plugins', () => {
     assert.deepEqual(fresh([], 'repo'), []);
   });
 
-  it('should not reinstall a selected plugin already installed at user scope on a repo run', () => {
+  it('should install at project scope on a repo run even when the plugin is installed at user scope', () => {
     const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.1' }];
+    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
+    assert.deepEqual(plan.map((step) => step.args), [PROJECT_ADD, install('bluecube-sdlc', 'project')]);
+  });
+
+  it('should not reinstall a selected plugin already installed for this project', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.1' }];
     assert.deepEqual(planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED }), []);
   });
 
@@ -267,21 +277,21 @@ describe('planPluginCommands', () => {
     assert.deepEqual(planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'homedir', wanted: GITHUB, migration: null, installed, pinned: PINNED }), []);
   });
 
-  it('should install at user scope, never at project scope, when the plugin is installed only for this project', () => {
-    const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.1' }];
-    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
-    assert.deepEqual(plan.map((step) => step.args), [ADD, install('bluecube-sdlc', 'user')]);
-  });
-
-  it('should still update a project scope copy behind the pinned release at its own scope', () => {
+  it('should update a project scope copy behind the pinned release at project scope on a repo run', () => {
     const installed = [{ name: 'bluecube-sdlc', scope: 'project', version: '1.1.0' }];
-    const plan = planPluginCommands({ selected: [], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
-    assert.deepEqual(plan.map((step) => step.args), [ADD, MARKETPLACE_UPDATE, update('bluecube-sdlc', 'project')]);
+    const plan = planPluginCommands({ selected: ['bluecube-sdlc'], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
+    assert.deepEqual(plan.map((step) => step.args), [PROJECT_ADD, MARKETPLACE_UPDATE, update('bluecube-sdlc', 'project')]);
   });
 
-  it('should update the marketplace, then each plugin behind the pinned release at its scope', () => {
+  it('should leave a user scope copy behind the pinned release alone on a repo run', () => {
     const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.0' }];
     const plan = planPluginCommands({ selected: [], scope: 'repo', wanted: GITHUB, migration: null, installed, pinned: PINNED });
+    assert.deepEqual(plan, []);
+  });
+
+  it('should update the marketplace, then each plugin behind the pinned release on a home run', () => {
+    const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.0' }];
+    const plan = planPluginCommands({ selected: [], scope: 'homedir', wanted: GITHUB, migration: null, installed, pinned: PINNED });
     assert.deepEqual(plan.map((step) => step.args), [ADD, MARKETPLACE_UPDATE, update('bluecube-sdlc', 'user')]);
   });
 
@@ -303,6 +313,58 @@ describe('planPluginCommands', () => {
     assert.deepEqual(local.map((step) => step.args), [['plugin', 'marketplace', 'add', CHECKOUT], install('bluecube-sdlc', 'user')]);
     const github = planPluginCommands({ selected: [], scope: 'homedir', wanted: GITHUB, migration, installed: [], pinned: PINNED });
     assert.deepEqual(github[0].args, ADD);
+  });
+});
+
+describe('conflictingSource', () => {
+  const CLIENT_WANTED = wantedSource(CLIENT_URL, CLIENT);
+  const SDK_SOURCE = { source: 'github', repo: 'BlueCube-AI/bluecube-coder' };
+
+  it('should find no conflict on a machine without the marketplace or with the wanted source', () => {
+    assert.equal(conflictingSource({ registration: NO_LEGACY, known: null, wanted: CLIENT_WANTED }), null);
+    const same = { source: 'git', url: CLIENT_URL };
+    assert.equal(conflictingSource({ registration: { declared: same, legacy: null }, known: same, wanted: CLIENT_WANTED }), null);
+  });
+
+  it('should name the other source a home declaration or the known marketplace uses', () => {
+    assert.equal(conflictingSource({ registration: { declared: SDK_SOURCE, legacy: null }, known: null, wanted: CLIENT_WANTED }), SDK_SOURCE.repo);
+    assert.equal(conflictingSource({ registration: NO_LEGACY, known: { source: 'directory', path: CHECKOUT }, wanted: CLIENT_WANTED }), CHECKOUT);
+    assert.equal(conflictingSource({ registration: NO_LEGACY, known: { source: 'git', url: GITHUB_URL }, wanted: CLIENT_WANTED }), GITHUB_URL);
+  });
+
+  it('should treat a legacy registration as a conflict', () => {
+    const registration = { declared: null, legacy: { plugins: [], leftoverDirs: [] } };
+    assert.equal(conflictingSource({ registration, known: null, wanted: GITHUB }), messages.legacySourceLabel);
+  });
+});
+
+describe('claudeCandidates', () => {
+  // Answers like `which` for a fixed set of installed files.
+  const whichIn = (files) => (name, { pathEnv, platform }) => {
+    const file = (platform === 'win32' ? path.win32 : path.posix).join(pathEnv, name);
+    return files.includes(file) ? file : null;
+  };
+
+  it('should list every claude on PATH in order, then the native install locations, once each', () => {
+    const which = whichIn(['/w/node_modules/.bin/claude', '/usr/local/bin/claude', '/h/.local/bin/claude', '/h/.claude/local/claude']);
+    const env = { PATH: '/w/node_modules/.bin:/usr/bin:/usr/local/bin::/h/.local/bin' };
+
+    assert.deepEqual(claudeCandidates({ which, env, homedir: '/h', platform: 'linux' }), [
+      '/w/node_modules/.bin/claude', '/usr/local/bin/claude', '/h/.local/bin/claude', '/h/.claude/local/claude',
+    ]);
+  });
+
+  it('should split PATH and join the native locations the Windows way on win32', () => {
+    const which = whichIn(['C:\\npm\\claude', 'C:\\Users\\dev\\.local\\bin\\claude']);
+    const env = { Path: 'C:\\Windows;C:\\npm' };
+
+    assert.deepEqual(claudeCandidates({ which, env, homedir: 'C:\\Users\\dev', platform: 'win32' }), [
+      'C:\\npm\\claude', 'C:\\Users\\dev\\.local\\bin\\claude',
+    ]);
+  });
+
+  it('should return none when no claude is installed', () => {
+    assert.deepEqual(claudeCandidates({ which: whichIn([]), env: { PATH: '/usr/bin' }, homedir: '/h', platform: 'linux' }), []);
   });
 });
 
@@ -336,11 +398,11 @@ describe('installedPluginNames', () => {
 });
 
 describe('runPluginCommands', () => {
-  const plan = fresh(['bluecube-sdlc'], 'repo');
+  const plan = fresh(['bluecube-sdlc'], 'homedir');
 
   it('should check the options, list, then add and install in the target', async () => {
     const exec = fakeExec(currentClaude((cmd, args) => (args.includes('list') ? { stdout: '[]' } : {})));
-    const { results } = await runPluginCommands({ exec, plan, target: '/w/app', claudePresent: true, log: collectLog() });
+    const { results } = await runPluginCommands({ exec, plan, target: '/w/app', claudePaths: ['claude'], log: collectLog() });
     assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, HELP_INSTALL, LIST, ADD, plan[1].args]);
     assert.ok(exec.calls.every((c) => c.cmd === 'claude' && c.opts.cwd === '/w/app'));
     assert.deepEqual(results.map((r) => r.status), ['ok', 'ok']);
@@ -348,37 +410,59 @@ describe('runPluginCommands', () => {
 
   it('should skip the add when the marketplace is already listed', async () => {
     const exec = fakeExec(currentClaude((cmd, args) => (args.includes('list') ? { stdout: JSON.stringify([{ name: 'bluecube-coder' }]) } : {})));
-    await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log: collectLog() });
+    await runPluginCommands({ exec, plan, target: '/w', claudePaths: ['claude'], log: collectLog() });
     assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, HELP_INSTALL, LIST, plan[1].args]);
   });
 
-  it('should mark every step outdated and run nothing when claude lacks an option', async () => {
-    const exec = fakeExec((cmd, args) => (args.includes('--help') ? { stdout: 'Options:\n  -h, --help' } : {}));
+  it('should always run the project-scope add on a repo run, which declares the marketplace in the project', async () => {
+    const repoPlan = fresh(['bluecube-sdlc'], 'repo');
+    const exec = fakeExec(currentClaude());
+    const { results } = await runPluginCommands({ exec, plan: repoPlan, target: '/w', claudePaths: ['claude'], log: collectLog() });
+    assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, HELP_INSTALL, PROJECT_ADD, install('bluecube-sdlc', 'project')]);
+    assert.deepEqual(results.map((r) => r.status), ['ok', 'ok']);
+  });
+
+  it('should use the first claude that takes the options and run every command with it', async () => {
+    const exec = fakeExec((cmd, args) => (cmd === '/w/node_modules/.bin/claude' ? oldClaude(cmd, args) : currentClaude()(cmd, args)));
     const log = collectLog();
-    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log });
-    assert.ok(exec.calls.every((c) => c.args.includes('--help')));
+    const { results } = await runPluginCommands({
+      exec, plan, target: '/w', claudePaths: ['/w/node_modules/.bin/claude', '/h/.local/bin/claude'], log,
+    });
+    assert.deepEqual(results.map((r) => r.status), ['ok', 'ok']);
+    assert.deepEqual(exec.calls.slice(-2).map((c) => [c.cmd, c.args]), [['/h/.local/bin/claude', ADD], ['/h/.local/bin/claude', plan[1].args]]);
+    assert.deepEqual(log.lines, []);
+  });
+
+  it('should mark every step outdated, run nothing and name each claude with its version when none takes the options', async () => {
+    const exec = fakeExec(oldClaude);
+    const log = collectLog();
+    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePaths: ['/a/claude', '/b/claude'], log });
+    assert.ok(exec.calls.every((c) => c.args.includes('--help') || c.args.includes('--version')));
     assert.deepEqual(results.map((r) => r.status), ['outdated', 'outdated']);
-    assert.deepEqual(log.lines, [messages.pluginClaudeTooOld]);
+    assert.deepEqual(log.lines, [messages.pluginClaudeTooOld([{ path: '/a/claude', version: '1.0.31' }, { path: '/b/claude', version: '1.0.31' }])]);
+    assert.match(log.lines[0], /Checked: \/a\/claude \(1\.0\.31\), \/b\/claude \(1\.0\.31\)$/);
   });
 
   it('should mark every step outdated when claude has no plugin command', async () => {
     const exec = fakeExec(() => ({ code: 1, stderr: "error: unknown command 'plugin'" }));
-    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log: collectLog() });
-    assert.equal(exec.calls.length, 1);
+    const log = collectLog();
+    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePaths: ['claude'], log });
+    assert.deepEqual(exec.calls.map((c) => c.args), [HELP_ADD, ['--version']]);
     assert.deepEqual(results.map((r) => r.status), ['outdated', 'outdated']);
+    assert.deepEqual(log.lines, [messages.pluginClaudeTooOld([{ path: 'claude', version: null }])]);
   });
 
   it('should collect a failure instead of throwing', async () => {
     const exec = fakeExec(currentClaude((cmd, args) => (args[1] === 'install' ? { code: 1 } : { stdout: '[]' })));
     const log = collectLog();
-    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: true, log });
+    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePaths: ['claude'], log });
     assert.deepEqual(results.map((r) => r.status), ['ok', 'failed']);
     assert.match(log.lines[0], /Plugin command failed \(exit 1\)/);
   });
 
   it('should skip every step when claude is absent', async () => {
     const exec = fakeExec();
-    const { results, outcome } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: false, log: collectLog() });
+    const { results, outcome } = await runPluginCommands({ exec, plan, target: '/w', claudePaths: [], log: collectLog() });
     assert.equal(exec.calls.length, 0);
     assert.deepEqual(results.map((r) => r.status), ['skipped', 'skipped']);
     assert.equal(outcome.migrationPending, false);
@@ -387,16 +471,16 @@ describe('runPluginCommands', () => {
   it('should print the commands on a dry run', async () => {
     const exec = fakeExec();
     const log = collectLog();
-    await runPluginCommands({ exec, plan, dryRun: true, target: '/w', claudePresent: true, log });
+    await runPluginCommands({ exec, plan: fresh(['bluecube-sdlc'], 'repo'), dryRun: true, target: '/w', claudePaths: ['claude'], log });
     assert.equal(exec.calls.length, 0);
-    assert.deepEqual(log.lines, [`claude ${ADD.join(' ')}`, `claude ${plan[1].args.join(' ')}`]);
+    assert.deepEqual(log.lines, [`claude ${PROJECT_ADD.join(' ')}`, `claude ${install('bluecube-sdlc', 'project').join(' ')}`]);
   });
 
   it('should collect the plugins a successful update brought to the pinned release', async () => {
     const installed = [{ name: 'bluecube-sdlc', scope: 'user', version: '1.1.0' }];
     const updatePlan = planPluginCommands({ selected: [], scope: 'homedir', wanted: GITHUB, migration: null, installed, pinned: PINNED });
     const exec = fakeExec(currentClaude((cmd, args) => (args.includes('list') ? { stdout: JSON.stringify([{ name: 'bluecube-coder' }]) } : {})));
-    const { results, outcome } = await runPluginCommands({ exec, plan: updatePlan, target: '/h', claudePresent: true, log: collectLog() });
+    const { results, outcome } = await runPluginCommands({ exec, plan: updatePlan, target: '/h', claudePaths: ['claude'], log: collectLog() });
     assert.deepEqual(exec.calls.slice(3).map((c) => c.args), [MARKETPLACE_UPDATE, update('bluecube-sdlc', 'user')]);
     assert.deepEqual(results.map((r) => r.status), ['ok', 'ok']);
     assert.deepEqual(outcome.updated, ['bluecube-sdlc']);
@@ -409,7 +493,7 @@ describe('runPluginCommands', () => {
       if (args.includes('list')) return { stdout: JSON.stringify([{ name: 'bluecube-coder' }]) };
       return args.includes('update') ? { code: 1 } : {};
     }));
-    const { results, outcome } = await runPluginCommands({ exec, plan: updatePlan, target: '/h', claudePresent: true, log: collectLog() });
+    const { results, outcome } = await runPluginCommands({ exec, plan: updatePlan, target: '/h', claudePaths: ['claude'], log: collectLog() });
     assert.deepEqual(exec.calls.slice(3).map((c) => c.args), [MARKETPLACE_UPDATE]);
     assert.deepEqual(results.map((r) => r.status), ['failed', 'failed']);
     assert.deepEqual(outcome.updated, []);
@@ -425,7 +509,7 @@ describe('runPluginCommands with a migration', () => {
       return {};
     }));
 
-    const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePresent: true, log: collectLog() });
+    const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePaths: ['claude'], log: collectLog() });
 
     assert.deepEqual(exec.calls.map((c) => c.args), [
       HELP_ADD, HELP_INSTALL, ADD, install('bluecube-sdlc', 'user'), install('kb-knowledge-graph', 'user'),
@@ -450,7 +534,7 @@ describe('runPluginCommands with a migration', () => {
     }));
     const log = collectLog();
 
-    const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePresent: true, log });
+    const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePaths: ['claude'], log });
 
     assert.deepEqual(readFiles(machine.paths), before);
     assert.ok(machine.leftoverDirs.every((dir) => fs.existsSync(dir)));
@@ -467,7 +551,7 @@ describe('runPluginCommands with a migration', () => {
     const exec = fakeExec();
     const log = collectLog();
 
-    await runPluginCommands({ exec, ...machine, dryRun: true, claudePresent: true, log });
+    await runPluginCommands({ exec, ...machine, dryRun: true, claudePaths: ['claude'], log });
 
     assert.equal(exec.calls.length, 0);
     assert.deepEqual(log.lines, [
@@ -480,17 +564,17 @@ describe('runPluginCommands with a migration', () => {
     assert.ok(machine.leftoverDirs.every((dir) => fs.existsSync(dir)));
   });
 
-  for (const [label, claudePresent, exec] of [
-    ['absent', false, fakeExec()],
-    ['too old', true, fakeExec(() => ({ stdout: 'Options:\n  -h, --help' }))],
+  for (const [label, claudePaths, exec] of [
+    ['absent', [], fakeExec()],
+    ['too old', ['claude'], fakeExec(oldClaude)],
   ]) {
     it(`should leave the registry untouched when claude is ${label}`, async () => {
       const machine = legacyMachine();
       const before = readFiles(machine.paths);
 
-      const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePresent, log: collectLog() });
+      const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePaths, log: collectLog() });
 
-      assert.ok(results.every((r) => r.status === (claudePresent ? 'outdated' : 'skipped')));
+      assert.ok(results.every((r) => r.status === (claudePaths.length ? 'outdated' : 'skipped')));
       assert.deepEqual(readFiles(machine.paths), before);
       assert.equal(outcome.migrationPending, true);
     });
@@ -517,7 +601,7 @@ describe('runPluginCommands with a migration', () => {
         }
         return args[1] === 'install' ? { code: installCode } : {};
       }));
-      await runPluginCommands({ exec, ...machine, claudePresent: true, log: collectLog() });
+      await runPluginCommands({ exec, ...machine, claudePaths: ['claude'], log: collectLog() });
       return presentAtAdd;
     }
 
@@ -561,7 +645,7 @@ describe('runPluginCommands with a migration', () => {
     const localPlan = planPluginCommands({ selected: [], scope: 'homedir', wanted: LOCAL, migration: toLocal, installed, pinned: PINNED });
 
     const local = await runPluginCommands({
-      exec: fakeExec(currentClaude()), plan: localPlan, migration: toLocal, paths, wanted: LOCAL, target, claudePresent: true, log: collectLog(),
+      exec: fakeExec(currentClaude()), plan: localPlan, migration: toLocal, paths, wanted: LOCAL, target, claudePaths: ['claude'], log: collectLog(),
     });
 
     assert.deepEqual(local.outcome, { migrated: null, rolledBack: null, migrationPending: false, localSource: CHECKOUT, updated: [], ahead: [] });
@@ -571,7 +655,7 @@ describe('runPluginCommands with a migration', () => {
     const githubPlan = planPluginCommands({ selected: [], scope: 'homedir', wanted: GITHUB, migration: toGithub, installed, pinned: PINNED });
 
     const github = await runPluginCommands({
-      exec: fakeExec(currentClaude()), plan: githubPlan, migration: toGithub, paths, wanted: GITHUB, target, claudePresent: true, log: collectLog(),
+      exec: fakeExec(currentClaude()), plan: githubPlan, migration: toGithub, paths, wanted: GITHUB, target, claudePaths: ['claude'], log: collectLog(),
     });
 
     assert.equal(toGithub.reason, 'switch');

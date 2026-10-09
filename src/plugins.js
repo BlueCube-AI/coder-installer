@@ -15,9 +15,12 @@ const HELP_TIMEOUT_MS = 30000;
 // Older Claude Code releases reject these options with "unknown option", so the help
 // text is checked first instead of failing on every plugin command.
 const REQUIRED_OPTIONS = [
-  { args: ['plugin', 'marketplace', 'add', '--help'], option: '--sparse' },
-  { args: ['plugin', 'install', '--help'], option: '--scope' },
+  { args: ['plugin', 'marketplace', 'add', '--help'], options: ['--sparse', '--scope'] },
+  { args: ['plugin', 'install', '--help'], options: ['--scope'] },
 ];
+// Where Claude Code's own installers put claude: the native install, and the older local install
+// that shells reach through an alias.
+const NATIVE_CLAUDE_DIRS = [['.local', 'bin'], ['.claude', 'local']];
 
 // `marketplace add <owner>/<name>` may be recorded as a git source with the full URL.
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -25,8 +28,24 @@ const githubRepoUrl = (repo) => new RegExp(`github\\.com[/:]${escapeRegExp(repo)
 
 export const formatClaudeCommand = (args) => `claude ${args.join(' ')}`;
 
-// Plugins install once per developer, so a repo run never adds a project copy (container finding 4).
-const PLUGIN_SCOPE = 'user';
+// A home run installs for every project, a repo run for its project only. A marketplace move is
+// machine-wide, so the plugins it carries go back at user scope.
+const USER_SCOPE = 'user';
+const PROJECT_SCOPE = 'project';
+const pluginScopeFor = (scope) => (scope === 'repo' ? PROJECT_SCOPE : USER_SCOPE);
+
+/**
+ * Every claude the run could use, in order: each one on PATH, then the native install locations.
+ * npx puts the node_modules/.bin of every parent folder ahead of PATH, and a shell alias is
+ * invisible here, so the first claude on PATH can be an old copy the developer's shell never runs.
+ */
+export function claudeCandidates({ which, env, homedir, platform }) {
+  const lib = platform === 'win32' ? path.win32 : path.posix;
+  const pathDirs = (env?.PATH ?? env?.Path ?? '').split(lib.delimiter);
+  const nativeDirs = NATIVE_CLAUDE_DIRS.map((parts) => lib.join(homedir, ...parts));
+  const found = [...pathDirs, ...nativeDirs].filter(Boolean).map((dir) => which('claude', { pathEnv: dir, platform }));
+  return [...new Set(found.filter(Boolean))];
+}
 
 /**
  * The marketplace source this run registers: the local checkout for a file:// URL, whose
@@ -72,9 +91,24 @@ export function planMigration({ registration, installed, wanted, selected }) {
   // The strip matches entries by scope, so carried entries keep theirs; every carried plugin is
   // reinstalled at user scope.
   for (const name of selected) {
-    if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: PLUGIN_SCOPE });
+    if (!carried.some((entry) => entry.name === name)) carried.push({ name, scope: USER_SCOPE });
   }
   return { reason: legacy ? 'legacy' : 'switch', carried, leftoverDirs: legacy?.leftoverDirs ?? [] };
+}
+
+const describeSource = (source) => source.repo ?? source.url ?? source.path ?? source.source;
+
+/**
+ * The source of the machine's bluecube-coder marketplace when it is not the wanted one, as text
+ * for the report, else null. The marketplace is one per machine: adding another source for one
+ * project would move it, and with it the plugins of every project, so a repo run stops here.
+ */
+export function conflictingSource({ registration, known, wanted }) {
+  if (registration.legacy) return messages.legacySourceLabel;
+  for (const source of [registration.declared, known]) {
+    if (source && !sourceMatches(source, wanted)) return describeSource(source);
+  }
+  return null;
 }
 
 /**
@@ -86,6 +120,14 @@ export function unofferedPlugins({ migration, marketplace }) {
   const offered = new Set((marketplace?.plugins ?? []).map(({ name }) => name));
   return migration.carried.filter(({ name }) => !offered.has(name));
 }
+
+// A project-scope add declares the marketplace in the project's settings, where a teammate's
+// Claude Code finds it; `plugin install --scope project` alone does not write it there.
+const marketplaceAddStep = (wanted, scope) => ({
+  kind: 'marketplaceAdd',
+  scope,
+  args: ['plugin', 'marketplace', 'add', ...wanted.addArgs, ...(scope === PROJECT_SCOPE ? ['--scope', scope] : [])],
+});
 
 const installStep = ({ name, scope }) => ({
   kind: 'install',
@@ -110,26 +152,28 @@ export function aheadPlugins({ installed, pinned }) {
 
 /**
  * Ordered claude CLI steps: with a migration, add the wanted marketplace and reinstall each
- * carried plugin once at user scope; otherwise install the selected plugins missing at user
- * scope and update the installed ones that are behind the pinned release at their own scope.
+ * carried plugin once at user scope; otherwise add it at the run's plugin scope, install the
+ * selected plugins missing there and update the ones there that are behind the pinned release.
+ * A repo run touches project-scope installs of its target only, never the user-scope ones.
  */
-export function planPluginCommands({ selected, wanted, migration, installed, pinned }) {
-  const add = { kind: 'marketplaceAdd', args: ['plugin', 'marketplace', 'add', ...wanted.addArgs] };
+export function planPluginCommands({ selected, scope, wanted, migration, installed, pinned }) {
   if (migration) {
     const names = [...new Set(migration.carried.map(({ name }) => name))];
-    return [add, ...names.map((name) => installStep({ name, scope: PLUGIN_SCOPE }))];
+    return [marketplaceAddStep(wanted, USER_SCOPE), ...names.map((name) => installStep({ name, scope: USER_SCOPE }))];
   }
 
+  const pluginScope = pluginScopeFor(scope);
+  const own = installed.filter((entry) => entry.scope === pluginScope);
   const installs = selected
-    .filter((name) => !installed.some((entry) => entry.name === name && entry.scope === PLUGIN_SCOPE))
-    .map((name) => installStep({ name, scope: PLUGIN_SCOPE }));
-  const behind = installed.filter(({ name, version }) => compareVersions(version, pinned[name]) === -1);
+    .filter((name) => !own.some((entry) => entry.name === name))
+    .map((name) => installStep({ name, scope: pluginScope }));
+  const behind = own.filter(({ name, version }) => compareVersions(version, pinned[name]) === -1);
   // Without a marketplace update, `plugin update` compares against the stale marketplace clone.
   const updates = behind.length
     ? [{ kind: 'marketplaceUpdate', args: ['plugin', 'marketplace', 'update', MARKETPLACE_NAME] }, ...behind.map(updateStep)]
     : [];
   if (installs.length === 0 && updates.length === 0) return [];
-  return [add, ...installs, ...updates];
+  return [marketplaceAddStep(wanted, pluginScope), ...installs, ...updates];
 }
 
 /**
@@ -142,12 +186,28 @@ export function installedPluginNames({ selected, migration, results, outcome }) 
   return names.filter((name) => !results.some(({ step, status }) => step.kind === 'install' && step.plugin === name && status !== 'ok'));
 }
 
-async function supportsPluginOptions({ exec, target }) {
-  for (const { args, option } of REQUIRED_OPTIONS) {
-    const result = await exec('claude', args, { cwd: target, timeoutMs: HELP_TIMEOUT_MS });
-    if (result.code !== 0 || !result.stdout.includes(option)) return false;
+async function supportsPluginOptions({ exec, claude, target }) {
+  for (const { args, options } of REQUIRED_OPTIONS) {
+    const result = await exec(claude, args, { cwd: target, timeoutMs: HELP_TIMEOUT_MS });
+    if (result.code !== 0 || !options.every((option) => result.stdout.includes(option))) return false;
   }
   return true;
+}
+
+/**
+ * The first candidate whose plugin commands take every option the plan passes. Returns
+ * {claude, checked}: claude is null when none does, and checked names each rejected one with
+ * its version for the report.
+ */
+async function pickClaude({ exec, candidates, target }) {
+  const checked = [];
+  for (const candidate of candidates) {
+    if (await supportsPluginOptions({ exec, claude: candidate, target })) return { claude: candidate, checked };
+    const result = await exec(candidate, ['--version'], { cwd: target, timeoutMs: HELP_TIMEOUT_MS });
+    const version = result.code === 0 ? result.stdout.trim().split(/\s+/)[0] || null : null;
+    checked.push({ path: candidate, version });
+  }
+  return { claude: null, checked };
 }
 
 function listsMarketplace(stdout) {
@@ -160,12 +220,12 @@ function listsMarketplace(stdout) {
   }
 }
 
-const runStep = (exec, step, target) => exec('claude', step.args, { cwd: target, stdio: 'inherit' });
+const runStep = (exec, claude, step, target) => exec(claude, step.args, { cwd: target, stdio: 'inherit' });
 
 // All or nothing: on the first failing command the four registry files go back to the
 // snapshot and the old marketplace copy goes back in place, so the plugins keep working from
 // the old registration.
-async function runMigration({ exec, plan, migration, paths, wanted, target, log, outcome }) {
+async function runMigration({ exec, claude, plan, migration, paths, wanted, target, log, outcome }) {
   const snapshot = snapshotRegistry(paths);
   let parked;
   try {
@@ -179,7 +239,7 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
 
   const results = [];
   for (const [index, step] of plan.entries()) {
-    const result = await runStep(exec, step, target);
+    const result = await runStep(exec, claude, step, target);
     if (result.code === 0) {
       results.push({ step, status: 'ok' });
       continue;
@@ -201,13 +261,14 @@ async function runMigration({ exec, plan, migration, paths, wanted, target, log,
 }
 
 /**
- * Run the plan in `target`. Failures are collected, not thrown, so the deploy result still
+ * Run the plan in `target` with the first of `claudePaths` (see claudeCandidates) that takes
+ * the options the plan needs. Failures are collected, not thrown, so the deploy result still
  * stands. Returns {results, outcome}: one {step, status, code?} per step (ok, failed, skipped,
- * outdated when the claude CLI lacks an option the plan needs, rolled-back, or dry-run), and
- * the report outcome (migrated, rolledBack, migrationPending, localSource, updated; the caller
+ * outdated when no claude CLI has an option the plan needs, rolled-back, or dry-run), and the
+ * report outcome (migrated, rolledBack, migrationPending, localSource, updated; the caller
  * fills ahead).
  */
-export async function runPluginCommands({ exec, plan, migration, paths, wanted, dryRun, target, claudePresent, log }) {
+export async function runPluginCommands({ exec, plan, migration, paths, wanted, dryRun, target, claudePaths, log }) {
   const outcome = {
     migrated: null, rolledBack: null, migrationPending: false, localSource: null, updated: [], ahead: [],
   };
@@ -219,22 +280,25 @@ export async function runPluginCommands({ exec, plan, migration, paths, wanted, 
   }
   // Only the installer can strip the old registration, so a skipped migration is not left to
   // by-hand commands: `marketplace add` refuses while settings declare another source.
-  if (!claudePresent) {
+  if (claudePaths.length === 0) {
     log(messages.pluginSkippedNoClaude);
     outcome.migrationPending = Boolean(migration);
     return { results: plan.map((step) => ({ step, status: 'skipped' })), outcome };
   }
-  if (!(await supportsPluginOptions({ exec, target }))) {
-    log(messages.pluginClaudeTooOld);
+  const { claude, checked } = await pickClaude({ exec, candidates: claudePaths, target });
+  if (!claude) {
+    log(messages.pluginClaudeTooOld(checked));
     outcome.migrationPending = Boolean(migration);
     return { results: plan.map((step) => ({ step, status: 'outdated' })), outcome };
   }
-  if (migration) return runMigration({ exec, plan, migration, paths, wanted, target, log, outcome });
+  if (migration) return runMigration({ exec, claude, plan, migration, paths, wanted, target, log, outcome });
 
-  const listed = await exec('claude', ['plugin', 'marketplace', 'list', '--json'], { cwd: target, timeoutMs: LIST_TIMEOUT_MS });
-  const steps = listed.code === 0 && listsMarketplace(listed.stdout)
-    ? plan.filter((step) => step.kind !== 'marketplaceAdd')
-    : plan;
+  // A project-scope add always runs: it is what declares the marketplace in the project's settings.
+  let steps = plan;
+  if (plan.some((step) => step.kind === 'marketplaceAdd' && step.scope === USER_SCOPE)) {
+    const listed = await exec(claude, ['plugin', 'marketplace', 'list', '--json'], { cwd: target, timeoutMs: LIST_TIMEOUT_MS });
+    if (listed.code === 0 && listsMarketplace(listed.stdout)) steps = plan.filter((step) => step.kind !== 'marketplaceAdd');
+  }
 
   const results = [];
   let updateFailed = false;
@@ -244,7 +308,7 @@ export async function runPluginCommands({ exec, plan, migration, paths, wanted, 
       results.push({ step, status: 'failed' });
       continue;
     }
-    const result = await runStep(exec, step, target);
+    const result = await runStep(exec, claude, step, target);
     if (result.code === 0) {
       results.push({ step, status: 'ok' });
       if (step.kind === 'update') outcome.updated.push(step.plugin);

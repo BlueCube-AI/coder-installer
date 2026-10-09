@@ -5,6 +5,27 @@ file. The SDK has its own changelog.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-10-09
+
+### Changed
+- A repo run installs the plugins you pick for that project only. `claude plugin marketplace add`
+  and `claude plugin install` run with `--scope project`, which declares the marketplace and the
+  plugins in the project's `.claude/settings.json`, so teammates who open the project are offered
+  the same plugins. Before, a repo run installed them for every project. A repo run no longer
+  updates plugins installed for every project either. Scripts that relied on that pass `-g`.
+- A repo run never moves the machine's `bluecube-coder` marketplace. When it comes from another
+  source (another repository, a local checkout, or `deploy.py`'s old local copies), the run installs
+  no plugin and names the source in use. A home run (`-g`) still moves it.
+
+### Fixed
+- "This Claude Code version is too old to install plugins from the command line" no longer shows
+  when the `claude` your shell runs is current. The installer checked only the first `claude` on
+  the `PATH` that `npx` hands it, and `npx` puts the `node_modules/.bin` of every parent folder
+  first, so an old copy there, or an old copy on `PATH` behind a shell alias, failed the check. The
+  installer now tries every `claude` on `PATH`, then `~/.local/bin/claude` and
+  `~/.claude/local/claude`, and runs the plugin commands with the first one that takes `--sparse`
+  and `--scope`. When none does, the message names each one it checked with its version.
+
 ## [2.1.0] - 2026-10-09
 
 ### Changed

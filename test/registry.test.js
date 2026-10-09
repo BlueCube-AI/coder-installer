@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
-  claudeConfigDir, compareVersions, installedPlugins, readRegistration, registryPaths,
+  claudeConfigDir, compareVersions, installedPlugins, knownSource, readRegistration, registryPaths,
   restoreRegistry, snapshotRegistry, stripRegistration,
 } from '../src/registry.js';
 import { legacyDeclaration, registryFixture, writeJson } from './helpers.js';
@@ -117,12 +117,11 @@ describe('installedPlugins', () => {
     });
   }
 
-  it('should return user entries and project entries of the current target on a repo run', () => {
+  it('should return only the project entries of the current target on a repo run', () => {
     const { configDir, target } = registryFixture();
     writeInstalled(configDir, target);
 
     assert.deepEqual(installedPlugins({ configDir, target, scope: 'repo' }), [
-      { name: 'bluecube-sdlc', scope: 'user', version: '1.1.0' },
       { name: 'bluecube-sdlc', scope: 'project', version: '1.1.1' },
     ]);
   });
@@ -214,6 +213,27 @@ describe('snapshotRegistry, stripRegistration and restoreRegistry', () => {
       'cloudflare@cloudflare': [{ scope: 'user', version: '1.0.0' }],
     });
     assert.equal(fs.existsSync(paths.known), false);
+  });
+});
+
+describe('knownSource', () => {
+  it('should return the source Claude Code recorded for bluecube-coder', () => {
+    const { configDir, target } = registryFixture();
+    const paths = registryPaths({ configDir, target, scope: 'repo' });
+    writeJson(paths.known, {
+      cloudflare: { source: { source: 'github', repo: 'cloudflare/skills' } },
+      'bluecube-coder': { source: { source: 'github', repo: 'BlueCube-AI/coder-tangelo' }, installLocation: '/x' },
+    });
+
+    assert.deepEqual(knownSource(paths), { source: 'github', repo: 'BlueCube-AI/coder-tangelo' });
+  });
+
+  it('should return null without the file, the key or a source object', () => {
+    const { configDir, target } = registryFixture();
+    const paths = registryPaths({ configDir, target, scope: 'repo' });
+    assert.equal(knownSource(paths), null);
+    writeJson(paths.known, { 'bluecube-coder': { source: 'github' } });
+    assert.equal(knownSource(paths), null);
   });
 });
 

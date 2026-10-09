@@ -62,20 +62,35 @@ to run with your repository. `BLUECUBE_SDK_URL` counts as a repository.
 `uv run sdk/deploy.py --list-categories --agent <name>` in an SDK checkout lists the category ids.
 
 Claude Code plugins (`kb-knowledge-graph`, `bluecube-sdlc`) install through the `claude` CLI
-when you pick at least one:
-`claude plugin marketplace add <owner/repo> --sparse .claude-plugin plugins` for the repository
-you install from, then
-`claude plugin install <name>@bluecube-coder --scope user`, so each plugin is installed once for
-every project. A plugin already installed for every project is updated, never installed again.
-A run that picks no plugin leaves the plugins and their marketplace exactly as they are. Older
-Claude Code releases lack `--sparse` or `--scope`. The installer checks first and, when they are
-missing, installs everything else and asks you to run `claude update` and then the plugin
+when you pick at least one, at the scope of the run:
+
+- A home run (`-g`) runs `claude plugin marketplace add <owner/repo> --sparse .claude-plugin plugins`
+  for the repository you install from, then `claude plugin install <name>@bluecube-coder --scope user`,
+  so each plugin is available in every project.
+- A repo run adds `--scope project` to both. The marketplace and the plugins are declared in the
+  project's `.claude/settings.json` and work in that project only, and teammates who open the
+  project are offered the same plugins. Plugins installed for every project are left alone.
+
+A plugin already installed at the run's scope is updated, never installed again. A run that picks
+no plugin leaves the plugins and their marketplace exactly as they are.
+
+Claude Code keeps one `bluecube-coder` marketplace per machine. When it already comes from another
+source, such as the full SDK on a staff machine, a repo run installs no plugin and names the source
+in use: moving the marketplace would change the plugins of every project. A home run moves it, as
+described below.
+
+Older Claude Code releases lack `--sparse` or `--scope`. The installer checks every `claude` it can
+find, those on `PATH` in order and then `~/.local/bin/claude` and `~/.claude/local/claude`, and uses
+the first one that has both. `npx` puts the `node_modules/.bin` of every parent folder ahead of
+`PATH`, and a shell alias is invisible to it, so the first `claude` it sees can be an old copy your
+shell never runs. When none has them, the installer installs everything else, names each `claude`
+it checked with its version, and asks you to update or remove the old copy and then run the plugin
 commands it prints.
 
 A machine where the SDK's `deploy.py` registered the plugins from local copies carries a legacy
-`bluecube-coder` marketplace that blocks the GitHub one, so the installer replaces that
-registration with the GitHub marketplace without asking. Every plugin is reinstalled at user
-scope, so it is available in every project, and the leftover local copies are deleted. If any
+`bluecube-coder` marketplace that blocks the GitHub one, so a home run replaces that registration
+with the GitHub marketplace without asking. Every plugin is reinstalled at user scope, so it is
+available in every project, and the leftover local copies are deleted. If any
 `claude` command of that move fails, the plugin registry files and Claude Code's copy of the
 marketplace are restored as they were, the report names the failing command and the installer
 exits 1. When `claude` is missing or too old for such a move, the report asks you to run the
@@ -84,8 +99,8 @@ the settings still declare the old source.
 
 Rerunning the installer updates the plugins that are behind the pinned release and names them,
 and with `BLUECUBE_SDK_URL=file://...` the plugins load from that checkout instead of GitHub.
-The marketplace is always named `bluecube-coder`, so moving a machine between the full SDK and a
-client repository reinstalls its plugins from the new source the same way. When the new source
+The marketplace is always named `bluecube-coder`, so a home run that moves a machine between the
+full SDK and a client repository reinstalls its plugins from the new source the same way. When the new source
 does not offer a plugin installed from the old one, such as `bluecube-gauntlet` on a move to a
 client repository, the move would lose it: the installer leaves the plugins as they are, names
 that plugin and the command to uninstall it. For a URL that is neither GitHub nor `file://` the
@@ -97,9 +112,9 @@ A client repository holds a client package: only the items BlueCube picked for t
 a `client-package.json` with the package version and revision.
 
 - The picker lists only the package's categories and plugins. A repo run starts with every
-  category selected except Notifications & TTS, which you pick yourself, and no plugin, since
-  plugins install for every project. A home run (`-g`) starts with every plugin selected and no
-  category.
+  category selected except Notifications & TTS, which you pick yourself, and no plugin; a plugin
+  you pick there installs for that project only. A home run (`-g`) starts with every plugin
+  selected and no category.
 - When the install target holds an older package, the run says so before it installs the new
   one: "A newer version of your BlueCube Coder package is available: 1.2.0 (revision 1). This
   install has 1.1.0 (revision 3)." Running the installer again is the upgrade.
@@ -110,7 +125,8 @@ a `client-package.json` with the package version and revision.
 
 - A repo run writes to `<project>/.claude` and works in that project only.
 - A home run (`-g`) writes to `~/.claude` and is available in every project.
-- Plugins always install for every project, whichever scope you pick.
+- Plugins follow the run: a home run installs them for every project, a repo run for that project
+  only, declared in its `.claude/settings.json`.
 - Some entries work inside one project only. The installer reads them from the SDK catalog; with
   SDK 1.1.0 they are Project Memory, Status Line, Notifications & TTS, Session Logger and Damage
   Control. A home run leaves them out and says so, and asking for one with `-g` installs nothing

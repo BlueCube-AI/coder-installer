@@ -172,8 +172,14 @@ export const pluginFailed = (command, code) => `Plugin command failed (exit ${co
 export const pluginSkippedNoClaude = 'The claude CLI is not on PATH, so the plugins were not installed.';
 export const pluginSkippedNoSource = (url) =>
   `The plugins were not installed: their marketplace is added from GitHub or a file:// checkout, not from ${url}.`;
-export const pluginClaudeTooOld =
-  'This Claude Code version is too old to install plugins from the command line (its plugin commands lack --sparse or --scope), so the plugins were not installed.';
+const claudeWithVersion = ({ path, version }) => `${path} (${version ?? 'version unknown'})`;
+export const pluginClaudeTooOld = (checked) => 'The plugins were not installed: no claude CLI found here takes '
+  + `--sparse and --scope on its plugin commands. Checked: ${checked.map(claudeWithVersion).join(', ')}`;
+export const legacySourceLabel = 'the local copies deploy.py registered';
+export const pluginsProjectConflict = (inUse, wanted) => `Plugins not installed for this project: the `
+  + `bluecube-coder plugin marketplace on this machine comes from ${inUse}, not ${wanted}. A project `
+  + 'install never moves it, since that would change the plugins of every project. Run the installer '
+  + 'with -g to move it.';
 export const unexpectedError = (message) => `Unexpected error: ${message}`;
 
 const pluginList = (carried) => carried.map(({ name, scope }) => `${name} (${scope})`).join(', ') || 'no enabled plugins';
@@ -209,5 +215,6 @@ export const installedEverywhere = (dir) => `Installed for every project (${dir}
 export const nextStepsHeading = 'Next steps';
 export const nextStepSession = (displayName) => `Start a new ${displayName} session to load the new commands`;
 export const nextStepHooks = (settingsPath) => `Review the hooks under ${settingsPath} before you trust them`;
-export const nextStepUpdateClaude = 'Update Claude Code with `claude update`, then run the plugin commands below';
+export const nextStepUpdateClaude = 'Update Claude Code with `claude update`, or remove the old copy named above, '
+  + 'then run the plugin commands below';
 export const nextStepPlugin = (command) => `Run by hand: ${command}`;

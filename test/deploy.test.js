@@ -69,7 +69,7 @@ describe('nextSteps', () => {
     assert.deepEqual(lines, [
       'Start a new Claude Code session to load the new commands',
       'Review the hooks under .claude/settings.json before you trust them',
-      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope user',
+      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
     ]);
   });
 
@@ -100,9 +100,9 @@ describe('nextSteps', () => {
       pluginResults: plan.map((step) => ({ step, status: 'outdated' })),
     });
     assert.deepEqual(lines.slice(1), [
-      'Update Claude Code with `claude update`, then run the plugin commands below',
-      'Run by hand: claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins',
-      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope user',
+      messages.nextStepUpdateClaude,
+      'Run by hand: claude plugin marketplace add BlueCube-AI/bluecube-coder --sparse .claude-plugin plugins --scope project',
+      'Run by hand: claude plugin install bluecube-sdlc@bluecube-coder --scope project',
     ]);
   });
 
@@ -179,13 +179,11 @@ describe('installed summary', () => {
     return log.lines;
   };
 
-  it('should list categories under this project and plugins under every project on a repo run', () => {
+  it('should list categories, then plugins, under this project on a repo run', () => {
     assert.deepEqual(summary({ scope: 'repo', categoryLabels: ['Git Commands'], pluginNames: ['bluecube-sdlc'] }), [
       '',
       `Installed for this project (${path.join('/w', '.claude')}):`,
       '  - Git Commands',
-      '',
-      'Installed for every project (~/.claude):',
       '  - bluecube-sdlc',
       '',
       'Next steps',

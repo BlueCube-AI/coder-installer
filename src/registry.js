@@ -105,8 +105,8 @@ export function readRegistration({ configDir, target, scope }) {
 }
 
 function isConsideredEntry(entry, { target, scope }) {
-  if (entry?.scope === 'user') return true;
-  return scope === 'repo' && entry?.scope === 'project' && typeof entry.projectPath === 'string'
+  if (scope !== 'repo') return entry?.scope === 'user';
+  return entry?.scope === 'project' && typeof entry.projectPath === 'string'
     && path.resolve(entry.projectPath) === path.resolve(target);
 }
 
@@ -116,8 +116,8 @@ function installedEntries(configDir) {
 }
 
 /**
- * Installed bluecube-coder plugins the run considers: user scope always, project scope for
- * the current target on a repo run. Returns [{name, scope, version}].
+ * Installed bluecube-coder plugins at the run's own scope: user scope on a home run, project
+ * scope for the current target on a repo run. Returns [{name, scope, version}].
  */
 export function installedPlugins({ configDir, target, scope }) {
   const found = [];
@@ -129,6 +129,15 @@ export function installedPlugins({ configDir, target, scope }) {
     }
   }
   return found;
+}
+
+/**
+ * The source Claude Code last added the bluecube-coder marketplace from, or null. The machine
+ * keeps one per marketplace name, whichever settings file declared it.
+ */
+export function knownSource(paths) {
+  const source = readJson(paths.known)[MARKETPLACE_NAME]?.source;
+  return isObject(source) ? source : null;
 }
 
 /** Raw bytes of each registry file, or null when it is absent. */
