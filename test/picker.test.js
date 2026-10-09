@@ -221,13 +221,22 @@ describe('buildOptions', () => {
     assert.ok(!buildOptions({ ...CATALOG, agent: 'pi' }, 'repo', MARKETPLACE).some((o) => o.value.startsWith('plugin:')));
   });
 
-  it('should pre-select every category and plugin of a client package', () => {
+  describe('for a client package', () => {
     const catalog = { ...CATALOG_110, categories: CATALOG_110.categories.map((cat) => ({ ...cat, default: false })) };
-    for (const scope of ['repo', 'homedir']) {
-      const options = buildOptions(catalog, scope, MARKETPLACE, { selectAll: true });
-      assert.ok(options.some((o) => o.value.startsWith('plugin:')));
-      assert.ok(options.every((o) => o.selected), scope);
-    }
+    const isPlugin = (option) => option.value.startsWith('plugin:');
+
+    it('should pre-select every category but notifications and no plugin on a repo run', () => {
+      const options = buildOptions(catalog, 'repo', MARKETPLACE, { clientPackage: true });
+      assert.ok(options.some(isPlugin));
+      assert.ok(options.some((o) => o.value === 'notification'));
+      assert.ok(options.every((o) => o.selected === (!isPlugin(o) && o.value !== 'notification')));
+    });
+
+    it('should pre-select every plugin and no category on a home run', () => {
+      const options = buildOptions(catalog, 'homedir', MARKETPLACE, { clientPackage: true });
+      assert.ok(options.some((o) => !isPlugin(o)));
+      assert.ok(options.every((o) => o.selected === isPlugin(o)));
+    });
   });
 
   it('should tag the project-only entries of a repo run', () => {
@@ -275,12 +284,14 @@ describe('chooseCategories', () => {
     assert.ok(prompt.asked[0].initialValues.includes('memory_init'));
   });
 
-  it('should start with every option of a client package selected', async () => {
-    const all = buildOptions(CATALOG_110, 'repo', MARKETPLACE, { selectAll: true });
+  it('should start a client package repo run with every category but notifications selected and the plugins not', async () => {
+    const all = buildOptions(CATALOG_110, 'repo', MARKETPLACE, { clientPackage: true });
     const prompt = fakePrompt({ groupMultiselect: [['git']] });
     await chooseCategories({ options: all, prompt, scope: 'repo', agent: 'claude-code' });
-    assert.deepEqual(prompt.asked[0].initialValues, all.map((option) => option.value));
-    assert.ok(prompt.asked[0].initialValues.includes('plugin:bluecube-sdlc'));
+    const categories = all
+      .map((option) => option.value)
+      .filter((id) => !id.startsWith('plugin:') && id !== 'notification');
+    assert.deepEqual(prompt.asked[0].initialValues, categories);
   });
 
   it('should ask once more on an empty selection, then cancel', async () => {

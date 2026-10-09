@@ -14,7 +14,8 @@ import {
   confirmRepoTarget, createNonInteractivePrompt, createPrompt, projectOnlyCategories, readMarketplace,
 } from './picker.js';
 import {
-  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, wantedSource,
+  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, unofferedPlugins,
+  wantedSource,
 } from './plugins.js';
 import { ensureGitAccess, ensureUv } from './preflight.js';
 import { claudeConfigDir, installedPlugins, readRegistration, registryPaths } from './registry.js';
@@ -44,12 +45,12 @@ export function defaultDeps() {
 
 const NO_PLUGINS = { plan: [], migration: null, paths: null, wanted: null, installed: [], pinned: {} };
 
-// Read the Claude Code plugin registry and plan the plugin steps. Only claude-code runs get
-// here: Pi and OpenCode never read or write the registry.
+// Read the Claude Code plugin registry and plan the plugin steps. Only claude-code runs that
+// picked a plugin get here: Pi and OpenCode never read or write the registry.
 function planPlugins({ deps, options, scope, target, selected, marketplace }) {
   const wanted = wantedSource(options.sdkUrl, options.repoSlug);
   if (!wanted) {
-    if (selected.length) deps.log(messages.pluginSkippedNoSource(options.sdkUrl));
+    deps.log(messages.pluginSkippedNoSource(options.sdkUrl));
     return NO_PLUGINS;
   }
   const configDir = claudeConfigDir({ env: deps.env, homedir: deps.homedir });
@@ -59,6 +60,12 @@ function planPlugins({ deps, options, scope, target, selected, marketplace }) {
   const installed = installedPlugins(registry);
   const pinned = Object.fromEntries((marketplace?.plugins ?? []).map((plugin) => [plugin.name, plugin.version]));
   const migration = planMigration({ registration, installed, wanted, selected });
+  const unoffered = unofferedPlugins({ migration, marketplace });
+  if (unoffered.length) {
+    const source = wanted.kind === 'github' ? wanted.repo : wanted.path;
+    deps.log(messages.pluginsNotOffered(source, unoffered, migration.reason));
+    return NO_PLUGINS;
+  }
   const plan = planPluginCommands({ selected, wanted, migration, installed, pinned });
   return { plan, migration, paths, wanted, installed, pinned };
 }
@@ -110,7 +117,7 @@ async function install(given, deps) {
   if (scope === 'repo') await confirmRepoTarget({ exec, target, prompt, yes: options.yes, log });
 
   const marketplace = agent.name === 'claude-code' ? readMarketplace(source.root) : null;
-  const choices = buildOptions(catalog, scope, marketplace, { selectAll: clientPackage !== null });
+  const choices = buildOptions(catalog, scope, marketplace, { clientPackage: clientPackage !== null });
   const selected = await chooseCategories({
     options: choices, prompt, requested: options.categories, scope, agent: agent.name,
     projectOnly, scopeFlag: options.scopeFlag,
@@ -124,7 +131,9 @@ async function install(given, deps) {
     if (code !== 0) throw new CliError(EXIT.DEPLOY_FAILED, messages.deployFailed(code));
   }
 
-  const pluginPlan = agent.name === 'claude-code'
+  // Plugins install for every project, so a run that picks none leaves them as they are: no
+  // marketplace move, install or update.
+  const pluginPlan = agent.name === 'claude-code' && plugins.length
     ? planPlugins({ deps, options, scope, target, selected: plugins, marketplace })
     : NO_PLUGINS;
   const claudePresent = Boolean(whichFn('claude'));

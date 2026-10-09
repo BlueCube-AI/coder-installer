@@ -5,6 +5,30 @@ file. The SDK has its own changelog.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- A client package no longer pre-selects everything. A repo run starts with every category
+  selected except Notifications & TTS, and no plugin; a home run (`-g`) starts with every plugin
+  selected and no category.
+- A run that picks no plugin leaves the plugins and their `bluecube-coder` marketplace as they
+  are: no marketplace move, install or update. Before, a repo run that picked none still moved
+  the marketplace to the repository it installed from and reinstalled every plugin from there.
+  Scripts that relied on that pass `plugin:<name>` ids in `--categories`.
+
+### Fixed
+- A marketplace move no longer tries to reinstall a plugin the new source does not offer, such as
+  `bluecube-gauntlet` from the full SDK on a move to a client repository. That install failed and
+  rolled the whole move back. The run now leaves the plugins as they are, names the plugin and the
+  `claude plugin uninstall` command that clears the way.
+- A rolled-back marketplace move also puts back Claude Code's copy of the marketplace
+  (`plugins/marketplaces/bluecube-coder`). Before, only the registry files went back and that copy
+  still held the new source, so a plugin only the old source offered reported "not found in
+  marketplace bluecube-coder".
+- When `claude` is missing or too old and the marketplace has to move, the report asks for an
+  installer rerun instead of by-hand commands. A hand-typed `claude plugin marketplace add` is
+  refused while the settings declare the old source.
+
 ## [2.0.0] - 2026-10-08
 
 ### Changed

@@ -145,6 +145,29 @@ export function snapshotRegistry(paths) {
   return snapshot;
 }
 
+// Claude Code's working copy of the marketplace. `claude plugin marketplace add` deletes it and
+// clones the new source there, and a session reads plugins from it even for a legacy declaration,
+// so a rollback that restored only the registry files would leave the new source in charge.
+const marketplaceDir = (paths) => path.join(path.dirname(paths.known), 'marketplaces', MARKETPLACE_NAME);
+const PARKED_SUFFIX = '.bluecube-rollback';
+
+/** Move the marketplace copy aside before a migration. Returns the parked path, or null. */
+export function parkMarketplace(paths) {
+  const dir = marketplaceDir(paths);
+  if (!fs.existsSync(dir)) return null;
+  const parked = `${dir}${PARKED_SUFFIX}`;
+  fs.rmSync(parked, { recursive: true, force: true });
+  fs.renameSync(dir, parked);
+  return parked;
+}
+
+/** Drop the copy the migration created and put the parked one, if any, back in its place. */
+export function restoreMarketplace(paths, parked) {
+  const dir = marketplaceDir(paths);
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (parked) fs.renameSync(parked, dir);
+}
+
 /** Write every file back byte for byte, and delete the ones the snapshot did not have. */
 export function restoreRegistry(snapshot) {
   for (const [file, content] of Object.entries(snapshot)) {

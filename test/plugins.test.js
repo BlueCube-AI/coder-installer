@@ -6,7 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 import * as messages from '../src/messages.js';
 import {
-  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, sourceMatches, wantedSource,
+  aheadPlugins, installedPluginNames, planMigration, planPluginCommands, runPluginCommands, sourceMatches,
+  unofferedPlugins, wantedSource,
 } from '../src/plugins.js';
 import { installedPlugins, readRegistration, registryPaths } from '../src/registry.js';
 import { collectLog, fakeExec, legacyDeclaration, registryFixture, writeJson } from './helpers.js';
@@ -202,6 +203,43 @@ describe('planMigration', () => {
   });
 });
 
+describe('unofferedPlugins', () => {
+  const MARKETPLACE = { name: 'bluecube-coder', plugins: [{ name: 'kb-knowledge-graph' }, { name: 'bluecube-sdlc' }] };
+  const migration = (carried) => ({ reason: 'switch', carried, leftoverDirs: [] });
+
+  it('should name the carried plugins the wanted marketplace does not list, at their scopes', () => {
+    const carried = [
+      { name: 'bluecube-sdlc', scope: 'user' }, { name: 'bluecube-gauntlet', scope: 'user' }, { name: 'bluecube-gauntlet', scope: 'project' },
+    ];
+    assert.deepEqual(unofferedPlugins({ migration: migration(carried), marketplace: MARKETPLACE }), [
+      { name: 'bluecube-gauntlet', scope: 'user' }, { name: 'bluecube-gauntlet', scope: 'project' },
+    ]);
+  });
+
+  it('should name none without a migration or when every carried plugin is listed', () => {
+    assert.deepEqual(unofferedPlugins({ migration: null, marketplace: MARKETPLACE }), []);
+    assert.deepEqual(unofferedPlugins({ migration: migration([{ name: 'bluecube-sdlc', scope: 'user' }]), marketplace: MARKETPLACE }), []);
+  });
+});
+
+describe('pluginsNotOffered', () => {
+  const GAUNTLET = [{ name: 'bluecube-gauntlet', scope: 'user' }];
+
+  it('should name the plugin and the uninstall command for a switch', () => {
+    assert.equal(
+      messages.pluginsNotOffered('BlueCube-AI/coder-tangelo', GAUNTLET, 'switch'),
+      'Plugins left unchanged: BlueCube-AI/coder-tangelo does not offer bluecube-gauntlet, and moving the bluecube-coder '
+        + 'marketplace there would remove it. To move anyway, uninstall it first: '
+        + 'claude plugin uninstall bluecube-gauntlet@bluecube-coder --scope user',
+    );
+  });
+
+  it('should give no uninstall command for a legacy registration, which the claude CLI cannot see', () => {
+    const line = messages.pluginsNotOffered('BlueCube-AI/coder-tangelo', [...GAUNTLET, { name: 'kb-knowledge-graph', scope: 'user' }], 'legacy');
+    assert.match(line, /does not offer bluecube-gauntlet and kb-knowledge-graph, .* would remove them\.$/);
+  });
+});
+
 describe('planPluginCommands', () => {
   it('should add the marketplace, then install each plugin at user scope for repo', () => {
     assert.deepEqual(fresh(['kb-knowledge-graph', 'bluecube-sdlc'], 'repo').map((step) => step.args), [
@@ -340,9 +378,10 @@ describe('runPluginCommands', () => {
 
   it('should skip every step when claude is absent', async () => {
     const exec = fakeExec();
-    const { results } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: false, log: collectLog() });
+    const { results, outcome } = await runPluginCommands({ exec, plan, target: '/w', claudePresent: false, log: collectLog() });
     assert.equal(exec.calls.length, 0);
     assert.deepEqual(results.map((r) => r.status), ['skipped', 'skipped']);
+    assert.equal(outcome.migrationPending, false);
   });
 
   it('should print the commands on a dry run', async () => {
@@ -449,12 +488,69 @@ describe('runPluginCommands with a migration', () => {
       const machine = legacyMachine();
       const before = readFiles(machine.paths);
 
-      const { results } = await runPluginCommands({ exec, ...machine, claudePresent, log: collectLog() });
+      const { results, outcome } = await runPluginCommands({ exec, ...machine, claudePresent, log: collectLog() });
 
       assert.ok(results.every((r) => r.status === (claudePresent ? 'outdated' : 'skipped')));
       assert.deepEqual(readFiles(machine.paths), before);
+      assert.equal(outcome.migrationPending, true);
     });
   }
+
+  describe("Claude Code's marketplace copy", () => {
+    const copyOf = (paths) => path.join(path.dirname(paths.known), 'marketplaces', 'bluecube-coder');
+    const MANIFEST = path.join('.claude-plugin', 'marketplace.json');
+    const writeCopy = (dir, label) => {
+      fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
+      fs.writeFileSync(path.join(dir, MANIFEST), label);
+    };
+    const readCopy = (dir) => fs.readFileSync(path.join(dir, MANIFEST), 'utf8');
+
+    // `marketplace add` clones the new source into the copy's place, then the installs answer
+    // `installCode`. Resolves to whether the old copy was still in place at the add.
+    async function migrate(machine, installCode) {
+      const dir = copyOf(machine.paths);
+      const presentAtAdd = [];
+      const exec = fakeExec(currentClaude((cmd, args) => {
+        if (args[2] === 'add') {
+          presentAtAdd.push(fs.existsSync(dir));
+          writeCopy(dir, 'new');
+        }
+        return args[1] === 'install' ? { code: installCode } : {};
+      }));
+      await runPluginCommands({ exec, ...machine, claudePresent: true, log: collectLog() });
+      return presentAtAdd;
+    }
+
+    it('should put the old copy back when an install fails', async () => {
+      const machine = legacyMachine();
+      const dir = copyOf(machine.paths);
+      writeCopy(dir, 'old');
+
+      assert.deepEqual(await migrate(machine, 1), [false]);
+
+      assert.equal(readCopy(dir), 'old');
+      assert.deepEqual(fs.readdirSync(path.dirname(dir)), ['bluecube-coder']);
+    });
+
+    it('should remove the new copy when an install fails on a machine that had none', async () => {
+      const machine = legacyMachine();
+
+      await migrate(machine, 1);
+
+      assert.equal(fs.existsSync(copyOf(machine.paths)), false);
+    });
+
+    it('should keep the new copy and drop the old one once the migration succeeded', async () => {
+      const machine = legacyMachine();
+      const dir = copyOf(machine.paths);
+      writeCopy(dir, 'old');
+
+      await migrate(machine, 0);
+
+      assert.equal(readCopy(dir), 'new');
+      assert.deepEqual(fs.readdirSync(path.dirname(dir)), ['bluecube-coder']);
+    });
+  });
 
   it('should report the local checkout after a switch to a file:// source, and nothing after the switch back', async () => {
     const { configDir, target } = registryFixture();
@@ -468,7 +564,7 @@ describe('runPluginCommands with a migration', () => {
       exec: fakeExec(currentClaude()), plan: localPlan, migration: toLocal, paths, wanted: LOCAL, target, claudePresent: true, log: collectLog(),
     });
 
-    assert.deepEqual(local.outcome, { migrated: null, rolledBack: null, localSource: CHECKOUT, updated: [], ahead: [] });
+    assert.deepEqual(local.outcome, { migrated: null, rolledBack: null, migrationPending: false, localSource: CHECKOUT, updated: [], ahead: [] });
 
     writeJson(paths.homeSettings, { extraKnownMarketplaces: { 'bluecube-coder': { source: { source: 'directory', path: CHECKOUT } } } });
     const toGithub = planMigration({ registration: readRegistration({ configDir, target, scope: 'homedir' }), installed, wanted: GITHUB, selected: [], scope: 'homedir' });
@@ -479,6 +575,6 @@ describe('runPluginCommands with a migration', () => {
     });
 
     assert.equal(toGithub.reason, 'switch');
-    assert.deepEqual(github.outcome, { migrated: null, rolledBack: null, localSource: null, updated: [], ahead: [] });
+    assert.deepEqual(github.outcome, { migrated: null, rolledBack: null, migrationPending: false, localSource: null, updated: [], ahead: [] });
   });
 });

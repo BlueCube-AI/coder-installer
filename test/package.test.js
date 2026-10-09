@@ -160,22 +160,89 @@ describe('a client package run', () => {
     assert.ok(d.log.lines.includes(messages.newerPackage(clientPackage('1.1.0', 4), manifest('1.1.0', 3))));
   });
 
-  it('should open the picker with every category and plugin of the package selected', async () => {
-    const prompt = fakePrompt({ groupMultiselect: [['git']] });
-    const d = deps({ fetched: clientPackage('1.2.0', 1), prompt });
-    // A marketplace in the slot, so the picker offers plugins too.
+  // A marketplace in the slot, so the picker offers plugins too.
+  const withMarketplace = (d) => {
     d.exec = catalogExec({
       slotFiles: {
         'client-package.json': clientPackage('1.2.0', 1),
         '.claude-plugin/marketplace.json': { name: 'bluecube-coder', plugins: [{ name: 'bluecube-sdlc', version: '1.1.1' }] },
       },
     });
+    return d;
+  };
+  const pickerOf = (prompt) => {
+    const picker = prompt.asked.find((question) => question.kind === 'groupMultiselect');
+    return { offered: Object.values(picker.options).flat().map((option) => option.value), initial: picker.initialValues };
+  };
+
+  it('should open the picker of a home run with only the plugins of the package selected', async () => {
+    const prompt = fakePrompt({ groupMultiselect: [['git']] });
+    const d = withMarketplace(deps({ fetched: clientPackage('1.2.0', 1), prompt }));
 
     assert.equal(await main([CLIENT, '--agent', 'claude-code', '-g'], d), EXIT.OK);
 
-    const picker = prompt.asked.find((question) => question.kind === 'groupMultiselect');
-    const offered = Object.values(picker.options).flat().map((option) => option.value);
-    assert.ok(offered.includes('plugin:bluecube-sdlc'));
-    assert.deepEqual([...picker.initialValues].sort(), [...offered].sort());
+    const { offered, initial } = pickerOf(prompt);
+    assert.ok(offered.includes('git'));
+    assert.deepEqual(initial, ['plugin:bluecube-sdlc']);
+  });
+
+  it('should open the picker of a repo run with every category but notifications selected and no plugin', async () => {
+    const prompt = fakePrompt({ groupMultiselect: [['git']], confirm: true });
+    const d = withMarketplace(deps({ fetched: clientPackage('1.2.0', 1), prompt }));
+
+    assert.equal(await main([CLIENT, '--agent', 'claude-code', '--scope', 'repo', '--target', tmpDir()], d), EXIT.OK);
+
+    const { offered, initial } = pickerOf(prompt);
+    assert.ok(offered.includes('plugin:bluecube-sdlc') && offered.includes('notification'));
+    const expected = offered.filter((id) => !id.startsWith('plugin:') && id !== 'notification');
+    assert.deepEqual([...initial].sort(), expected.sort());
+  });
+
+  describe('on a machine whose plugins come from the full SDK', () => {
+    // bluecube-gauntlet is installed from the SDK marketplace; the package offers only bluecube-sdlc.
+    function sdkMachine(homedir) {
+      const configDir = path.join(homedir, '.claude');
+      writeJson(path.join(configDir, 'settings.json'), {
+        extraKnownMarketplaces: { 'bluecube-coder': { source: { source: 'github', repo: 'BlueCube-AI/bluecube-coder' } } },
+      });
+      writeJson(path.join(configDir, 'plugins', 'installed_plugins.json'), {
+        version: 2,
+        plugins: {
+          'bluecube-sdlc@bluecube-coder': [{ scope: 'user', version: '1.1.1' }],
+          'bluecube-gauntlet@bluecube-coder': [{ scope: 'user', version: '1.0.1' }],
+        },
+      });
+      const files = ['settings.json', path.join('plugins', 'installed_plugins.json')].map((file) => path.join(configDir, file));
+      return () => files.map((file) => fs.readFileSync(file, 'utf8'));
+    }
+    const claudeCalls = (d) => d.exec.calls.filter((call) => call.cmd === 'claude');
+
+    it('should leave the plugins alone on a run that picks none', async () => {
+      const homedir = tmpDir();
+      const registry = sdkMachine(homedir);
+      const before = registry();
+      const d = withMarketplace(deps({ fetched: clientPackage('1.2.0', 1), homedir }));
+
+      const argv = [CLIENT, '--agent', 'claude-code', '--scope', 'repo', '--target', tmpDir(), '--categories', 'git', '--yes'];
+      assert.equal(await main(argv, d), EXIT.OK);
+
+      assert.deepEqual(claudeCalls(d), []);
+      assert.deepEqual(registry(), before);
+    });
+
+    it('should name the plugin the package lacks and change nothing on a run that picks a plugin', async () => {
+      const homedir = tmpDir();
+      const registry = sdkMachine(homedir);
+      const before = registry();
+      const d = withMarketplace(deps({ fetched: clientPackage('1.2.0', 1), homedir }));
+
+      const argv = [CLIENT, '--agent', 'claude-code', '-g', '--categories', 'git,plugin:bluecube-sdlc', '--yes'];
+      assert.equal(await main(argv, d), EXIT.OK);
+
+      const unoffered = [{ name: 'bluecube-gauntlet', scope: 'user' }];
+      assert.ok(d.log.lines.includes(messages.pluginsNotOffered(CLIENT, unoffered, 'switch')));
+      assert.deepEqual(claudeCalls(d), []);
+      assert.deepEqual(registry(), before);
+    });
   });
 });
