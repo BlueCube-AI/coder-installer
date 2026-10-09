@@ -5,7 +5,7 @@ file. The SDK has its own changelog.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.2.0] - 2026-10-09
 
 ### Changed
 - A repo run installs the plugins you pick for that project only. `claude plugin marketplace add`
